@@ -102,15 +102,25 @@ export default function App() {
   const [previewMime, setPreviewMime] = useState('');
 
   // Login state
-  const [loginUser, setLoginUser] = useState('admin');
-  const [loginPass, setLoginPass] = useState('admin123456');
+  const [loginUser, setLoginUser] = useState('');
+  const [loginPass, setLoginPass] = useState('');
+  const [mostrarPass, setMostrarPass] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
 
-  // Formulario Nuevo Documento
+  // Formulario Nuevo Documento (con los 9 campos adicionales de Recepción)
   const [nuevoDocForm, setNuevoDocForm] = useState({
+    numero_recepcion: 'REC-0001',
+    fecha_recepcion_auto: new Date().toISOString().slice(0, 10),
+    hora_recepcion_auto: new Date().toTimeString().slice(0, 8),
     tipo_documento: 'Informe',
     remitente: '',
+    destinatario: '',
+    responsable_recepcion: '',
+    medio_recepcion: 'Presencial',
+    cantidad_anexos: 0,
+    observaciones: '',
+    estado: 'Recibido',
     asunto: '',
     id_categoria: '',
     fecha_vencimiento: '',
@@ -181,6 +191,30 @@ export default function App() {
   useEffect(() => {
     cargarTodo();
   }, [cargarTodo]);
+
+  // Al abrir el modal de Registrar Documento, actualiza N° de recepción (REC-0001), fecha y hora automáticas
+  useEffect(() => {
+    if (!modalNuevoDoc || !user) return;
+    const ahora = new Date();
+    setNuevoDocForm((prev) => ({
+      ...prev,
+      fecha_recepcion_auto: ahora.toISOString().slice(0, 10),
+      hora_recepcion_auto: ahora.toTimeString().slice(0, 8),
+      responsable_recepcion: prev.responsable_recepcion || user.nombre || '',
+    }));
+    apiFetch('/documentos/proximo-recepcion')
+      .then((info) => {
+        if (info?.proximo_numero_recepcion) {
+          setNuevoDocForm((prev) => ({
+            ...prev,
+            numero_recepcion: info.proximo_numero_recepcion,
+            fecha_recepcion_auto: info.fecha_actual || prev.fecha_recepcion_auto,
+            hora_recepcion_auto: info.hora_actual || prev.hora_recepcion_auto,
+          }));
+        }
+      })
+      .catch(() => {});
+  }, [modalNuevoDoc, user]);
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -271,6 +305,12 @@ export default function App() {
       const fd = new FormData();
       fd.append('tipo_documento', nuevoDocForm.tipo_documento);
       fd.append('remitente', nuevoDocForm.remitente);
+      fd.append('destinatario', nuevoDocForm.destinatario);
+      fd.append('responsable_recepcion', nuevoDocForm.responsable_recepcion || user.nombre || '');
+      fd.append('medio_recepcion', nuevoDocForm.medio_recepcion);
+      fd.append('cantidad_anexos', String(nuevoDocForm.cantidad_anexos ?? 0));
+      fd.append('observaciones', nuevoDocForm.observaciones);
+      fd.append('estado', nuevoDocForm.estado);
       fd.append('asunto', nuevoDocForm.asunto);
       fd.append('id_categoria', nuevoDocForm.id_categoria);
       if (nuevoDocForm.fecha_vencimiento) {
@@ -285,11 +325,17 @@ export default function App() {
 
       setFormMsg({
         tipo: 'ok',
-        texto: `Documento registrado exitosamente con código ${creado.numero_documento}`,
+        texto: `Recepción ${creado.numero_recepcion || ''} registrada exitosamente (Código: ${creado.numero_documento})`,
       });
       setNuevoDocForm((prev) => ({
         ...prev,
         remitente: '',
+        destinatario: '',
+        responsable_recepcion: user?.nombre || '',
+        medio_recepcion: 'Presencial',
+        cantidad_anexos: 0,
+        observaciones: '',
+        estado: 'Recibido',
         asunto: '',
         fecha_vencimiento: '',
         archivo: null,
@@ -351,44 +397,185 @@ export default function App() {
       <div className="login-screen">
         <div className="login-card">
           <div className="login-card-header">
-            <div className="inst-pill" style={{ display: 'inline-flex', marginBottom: 10 }}>
-              <span>🏛️ Sistema Institucional de Gestión</span>
+            <div className="login-faculty-tag">
+              <span className="login-faculty-bar" />
+              <span>FACULTAD INTEGRAL DE ICHILO · ING. EN SISTEMAS</span>
             </div>
-            <h2 style={{ fontSize: '1.35rem', fontWeight: 800 }}>
+            <h1 className="login-main-title">
               Sistema Automatizado de Archivos
-            </h2>
-            <p style={{ fontSize: '0.82rem', color: '#bfdbfe', marginTop: 4 }}>
-              Control, digitalización y seguimiento documental
+            </h1>
+            <p className="login-subtitle">
+              y Gestión Documental · Inicio de Sesión
             </p>
           </div>
+
           <form className="login-card-body" onSubmit={handleLogin}>
-            {loginError && <div className="alert-error">{loginError}</div>}
-            <div className="form-group">
-              <label>Usuario</label>
-              <input
-                className="form-control"
-                value={loginUser}
-                onChange={(e) => setLoginUser(e.target.value)}
-                placeholder="Ej. admin"
-                required
-              />
+            {loginError && (
+              <div className="login-error-banner" role="alert">
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ flexShrink: 0 }}
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <span>{loginError}</span>
+              </div>
+            )}
+
+            <div className="login-field-group">
+              <label className="login-field-label" htmlFor="login-usuario">
+                Correo electrónico / Usuario
+              </label>
+              <div className="login-input-wrapper">
+                <span className="login-input-icon">
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                    <circle cx="12" cy="7" r="4" />
+                  </svg>
+                </span>
+                <input
+                  id="login-usuario"
+                  type="text"
+                  className="login-input"
+                  value={loginUser}
+                  onChange={(e) => setLoginUser(e.target.value)}
+                  placeholder="Ingresa tu usuario o correo"
+                  autoComplete="username"
+                  required
+                />
+              </div>
             </div>
-            <div className="form-group">
-              <label>Contraseña</label>
-              <input
-                type="password"
-                className="form-control"
-                value={loginPass}
-                onChange={(e) => setLoginPass(e.target.value)}
-                placeholder="••••••••"
-                required
-              />
+
+            <div className="login-field-group">
+              <label className="login-field-label" htmlFor="login-contrasena">
+                Contraseña
+              </label>
+              <div className="login-input-wrapper">
+                <span className="login-input-icon">
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                </span>
+                <input
+                  id="login-contrasena"
+                  type={mostrarPass ? 'text' : 'password'}
+                  className="login-input has-toggle"
+                  value={loginPass}
+                  onChange={(e) => setLoginPass(e.target.value)}
+                  placeholder="Ingresa tu contraseña"
+                  autoComplete="current-password"
+                  required
+                />
+                <button
+                  type="button"
+                  className="login-toggle-pass"
+                  onClick={() => setMostrarPass((v) => !v)}
+                  title={mostrarPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  aria-label={mostrarPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                >
+                  {mostrarPass ? (
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                  ) : (
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  )}
+                </button>
+              </div>
             </div>
-            <button type="submit" className="btn-primary" disabled={loginLoading}>
-              {loginLoading ? 'Ingresando...' : 'Iniciar Sesión en el Panel'}
+
+            <button
+              type="submit"
+              className="btn-login-submit"
+              disabled={loginLoading}
+            >
+              {loginLoading ? (
+                <span>Verificando credenciales...</span>
+              ) : (
+                <>
+                  <span>Ingresar al Sistema</span>
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </>
+              )}
             </button>
-            <div style={{ fontSize: '0.75rem', color: '#64748b', textAlign: 'center' }}>
-              Acceso configurado con PostgreSQL · <code>gestor_de_documentos</code>
+
+            <div className="login-footer-note">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#0D1B4C"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+              <span>Acceso restringido para personal autorizado</span>
             </div>
           </form>
         </div>
@@ -529,9 +716,14 @@ export default function App() {
             </div>
 
             <div className="sub-navbar-user">
-              <span style={{ fontSize: '0.78rem', color: '#dbeafe', fontWeight: 600 }}>
-                {user.rol}
-              </span>
+              <div style={{ textAlign: 'right', lineHeight: 1.2 }}>
+                <div style={{ fontSize: '0.8rem', color: '#ffffff', fontWeight: 700 }}>
+                  {user.nombre}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: '#93c5fd', fontWeight: 600 }}>
+                  {user.rol}
+                </div>
+              </div>
               <div
                 className="user-mini-avatar"
                 title="Cerrar sesión"
@@ -562,10 +754,10 @@ export default function App() {
                     <span>SESIÓN ACTIVA</span>
                   </div>
                   <h1 className="hero-greeting">
-                    Hola, <span className="user-highlight">{user.nombre}</span>
+                    Sistema <span className="user-highlight">AUTOMATIZADO DE ARCHIVOS</span>
                   </h1>
                   <p className="hero-subtitle">
-                    Panel de gestión de documentos digitalizados · Rol: {user.rol}
+                    Panel de gestión de documentos digitalizados · Usuario: {user.nombre} ({user.rol})
                   </p>
                 </div>
               </div>
@@ -706,8 +898,11 @@ export default function App() {
                       onChange={(e) => setFiltroEstado(e.target.value)}
                     >
                       <option value="">Todos los estados</option>
+                      <option value="Recibido">Recibido</option>
                       <option value="Pendiente">Pendiente (En Revisión)</option>
+                      <option value="Derivado">Derivado</option>
                       <option value="Respondido">Respondido</option>
+                      <option value="Finalizado">Finalizado</option>
                       <option value="Archivado">Archivado</option>
                     </select>
 
@@ -807,7 +1002,14 @@ export default function App() {
                           const plazo = calcularEstadoPlazo(d.fecha_vencimiento, d.estado);
                           return (
                             <tr key={d.id_documento}>
-                              <td className="col-id">#{d.numero_documento}</td>
+                              <td className="col-id">
+                                <div>#{d.numero_documento}</div>
+                                {d.numero_recepcion && (
+                                  <div style={{ fontSize: '0.73rem', color: '#0369a1', fontWeight: 700 }}>
+                                    {d.numero_recepcion}
+                                  </div>
+                                )}
+                              </td>
                               <td>
                                 <div className="col-title-main">{d.asunto}</div>
                                 <div className="col-title-sub">
@@ -835,10 +1037,16 @@ export default function App() {
                               <td>
                                 <span className={`badge-etapa ${d.estado}`}>
                                   <span>
-                                    {d.estado === 'Pendiente'
-                                      ? '👥 En Revisión'
+                                    {d.estado === 'Recibido'
+                                      ? '📥 Recibido'
+                                      : d.estado === 'Pendiente'
+                                      ? '⏳ Pendiente'
+                                      : d.estado === 'Derivado'
+                                      ? '↗ Derivado'
                                       : d.estado === 'Respondido'
                                       ? '✓ Respondido'
+                                      : d.estado === 'Finalizado'
+                                      ? '🏁 Finalizado'
                                       : '📁 Archivado'}
                                   </span>
                                 </span>
@@ -1125,6 +1333,118 @@ export default function App() {
               )}
 
               <div className="form-grid">
+                {/* 1. N° de recepción automático */}
+                <div className="form-group">
+                  <label>1. N° de Recepción (Automático)</label>
+                  <input
+                    className="form-control"
+                    value={nuevoDocForm.numero_recepcion || 'REC-0001'}
+                    readOnly
+                    style={{ backgroundColor: '#f1f5f9', fontWeight: 700, color: '#0D1B4C' }}
+                  />
+                </div>
+
+                {/* 9. Estado del documento */}
+                <div className="form-group">
+                  <label>9. Estado del Documento *</label>
+                  <select
+                    className="form-control"
+                    value={nuevoDocForm.estado}
+                    onChange={(e) =>
+                      setNuevoDocForm({ ...nuevoDocForm, estado: e.target.value })
+                    }
+                    required
+                  >
+                    <option value="Recibido">Recibido</option>
+                    <option value="Pendiente">Pendiente</option>
+                    <option value="Derivado">Derivado</option>
+                    <option value="Finalizado">Finalizado</option>
+                  </select>
+                </div>
+
+                {/* 2. Fecha de recepción automática */}
+                <div className="form-group">
+                  <label>2. Fecha de Recepción (Automática)</label>
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={nuevoDocForm.fecha_recepcion_auto}
+                    readOnly
+                    style={{ backgroundColor: '#f8fafc', fontWeight: 600 }}
+                  />
+                </div>
+
+                {/* 3. Hora de recepción automática */}
+                <div className="form-group">
+                  <label>3. Hora de Recepción (Automática)</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={nuevoDocForm.hora_recepcion_auto}
+                    readOnly
+                    style={{ backgroundColor: '#f8fafc', fontWeight: 600 }}
+                  />
+                </div>
+
+                {/* Remitente */}
+                <div className="form-group">
+                  <label>Remitente / Institución Emisora *</label>
+                  <input
+                    className="form-control"
+                    placeholder="Persona o institución que envía"
+                    value={nuevoDocForm.remitente}
+                    onChange={(e) =>
+                      setNuevoDocForm({ ...nuevoDocForm, remitente: e.target.value })
+                    }
+                    required
+                  />
+                </div>
+
+                {/* 4. Destinatario o departamento */}
+                <div className="form-group">
+                  <label>4. Destinatario o Departamento *</label>
+                  <input
+                    className="form-control"
+                    placeholder="Ej. Dirección General / Carrera de Sistemas"
+                    value={nuevoDocForm.destinatario}
+                    onChange={(e) =>
+                      setNuevoDocForm({ ...nuevoDocForm, destinatario: e.target.value })
+                    }
+                    required
+                  />
+                </div>
+
+                {/* 5. Responsable encargado de recibir */}
+                <div className="form-group">
+                  <label>5. Responsable de Recepción *</label>
+                  <input
+                    className="form-control"
+                    placeholder="Funcionario que recepciona"
+                    value={nuevoDocForm.responsable_recepcion}
+                    onChange={(e) =>
+                      setNuevoDocForm({ ...nuevoDocForm, responsable_recepcion: e.target.value })
+                    }
+                    required
+                  />
+                </div>
+
+                {/* 6. Medio de recepción */}
+                <div className="form-group">
+                  <label>6. Medio de Recepción *</label>
+                  <select
+                    className="form-control"
+                    value={nuevoDocForm.medio_recepcion}
+                    onChange={(e) =>
+                      setNuevoDocForm({ ...nuevoDocForm, medio_recepcion: e.target.value })
+                    }
+                    required
+                  >
+                    <option value="Presencial">Presencial (Ventanilla / Mesa de entrada)</option>
+                    <option value="Digital">Digital (Correo institucional / Plataforma)</option>
+                  </select>
+                </div>
+
+                {/* Tipo de Documento y Categoría */}
                 <div className="form-group">
                   <label>Tipo de Documento *</label>
                   <select
@@ -1161,11 +1481,12 @@ export default function App() {
                   </select>
                 </div>
 
+                {/* Título / Asunto */}
                 <div className="form-group full">
                   <label>Título / Asunto del Documento *</label>
                   <input
                     className="form-control"
-                    placeholder="Ej. Informe de actividades del mes de Noviembre - 2026"
+                    placeholder="Ej. Solicitud de certificación de notas de semestre..."
                     value={nuevoDocForm.asunto}
                     onChange={(e) =>
                       setNuevoDocForm({ ...nuevoDocForm, asunto: e.target.value })
@@ -1174,19 +1495,25 @@ export default function App() {
                   />
                 </div>
 
+                {/* 7. Cantidad de anexos adjuntos */}
                 <div className="form-group">
-                  <label>Remitente / Institución *</label>
+                  <label>7. Cantidad de Anexos Adjuntos</label>
                   <input
+                    type="number"
+                    min="0"
                     className="form-control"
-                    placeholder="Nombre o unidad remitente"
-                    value={nuevoDocForm.remitente}
+                    placeholder="0"
+                    value={nuevoDocForm.cantidad_anexos}
                     onChange={(e) =>
-                      setNuevoDocForm({ ...nuevoDocForm, remitente: e.target.value })
+                      setNuevoDocForm({
+                        ...nuevoDocForm,
+                        cantidad_anexos: parseInt(e.target.value, 10) || 0,
+                      })
                     }
-                    required
                   />
                 </div>
 
+                {/* Fecha de vencimiento opcional */}
                 <div className="form-group">
                   <label>Fecha Límite / Vencimiento (opcional)</label>
                   <input
@@ -1199,6 +1526,21 @@ export default function App() {
                   />
                 </div>
 
+                {/* 8. Observaciones adicionales */}
+                <div className="form-group full">
+                  <label>8. Observaciones Adicionales</label>
+                  <textarea
+                    className="form-control"
+                    rows="2"
+                    placeholder="Detalles sobre el estado físico, prioridad, notas o instrucciones..."
+                    value={nuevoDocForm.observaciones}
+                    onChange={(e) =>
+                      setNuevoDocForm({ ...nuevoDocForm, observaciones: e.target.value })
+                    }
+                  />
+                </div>
+
+                {/* Archivo digitalizado */}
                 <div className="form-group full">
                   <label>Archivo Digitalizado (PDF, JPG, PNG, TIFF · máx. 20 MB) *</label>
                   <input
@@ -1278,6 +1620,43 @@ export default function App() {
                 }}
               >
                 <div>
+                  <div style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 700 }}>N° RECEPCIÓN</div>
+                  <div style={{ fontWeight: 700, color: '#0284c7', marginTop: 2 }}>
+                    {docSeleccionado.numero_recepcion || '—'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 700 }}>HORA Y FECHA RECEPCIÓN</div>
+                  <div style={{ fontWeight: 600, marginTop: 2 }}>
+                    {docSeleccionado.hora_recepcion ? `${docSeleccionado.hora_recepcion} · ` : ''}
+                    {formatearFechaCorta(docSeleccionado.fecha_recepcion)}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 700 }}>DESTINATARIO / DPTO</div>
+                  <div style={{ fontWeight: 600, marginTop: 2 }}>
+                    {docSeleccionado.destinatario || '—'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 700 }}>RESPONSABLE RECEPCIÓN</div>
+                  <div style={{ fontWeight: 600, marginTop: 2 }}>
+                    {docSeleccionado.responsable_recepcion || docSeleccionado.registrado_por || '—'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 700 }}>MEDIO DE RECEPCIÓN</div>
+                  <div style={{ fontWeight: 600, marginTop: 2 }}>
+                    {docSeleccionado.medio_recepcion || 'Presencial'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 700 }}>CANTIDAD DE ANEXOS</div>
+                  <div style={{ fontWeight: 700, marginTop: 2 }}>
+                    {docSeleccionado.cantidad_anexos ?? 0}
+                  </div>
+                </div>
+                <div>
                   <div style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 700 }}>ASUNTO</div>
                   <div style={{ fontWeight: 700, marginTop: 2 }}>{docSeleccionado.asunto}</div>
                 </div>
@@ -1300,13 +1679,17 @@ export default function App() {
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 700 }}>REGISTRADO POR</div>
-                  <div style={{ marginTop: 2 }}>{docSeleccionado.registrado_por}</div>
-                </div>
-                <div>
                   <div style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 700 }}>ARCHIVO DIGITAL</div>
                   <div style={{ marginTop: 2 }}>{docSeleccionado.nombre_original || 'Adjunto'}</div>
                 </div>
+                {docSeleccionado.observaciones && (
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <div style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 700 }}>OBSERVACIONES</div>
+                    <div style={{ marginTop: 2, color: '#334155', fontStyle: 'italic' }}>
+                      {docSeleccionado.observaciones}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Botones de archivo y transición de estado */}
@@ -1339,20 +1722,67 @@ export default function App() {
 
                 {puedeEscribir && (
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {docSeleccionado.estado === 'Recibido' && (
+                      <>
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          style={{ background: '#2563eb' }}
+                          onClick={() =>
+                            handleCambiarEstado(docSeleccionado.id_documento, 'Pendiente')
+                          }
+                        >
+                          ⏳ Pasar a Pendiente
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() =>
+                            handleCambiarEstado(docSeleccionado.id_documento, 'Derivado')
+                          }
+                        >
+                          ↗ Derivar
+                        </button>
+                      </>
+                    )}
                     {docSeleccionado.estado === 'Pendiente' && (
+                      <>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() =>
+                            handleCambiarEstado(docSeleccionado.id_documento, 'Derivado')
+                          }
+                        >
+                          ↗ Derivar
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          style={{ background: '#047857' }}
+                          onClick={() =>
+                            handleCambiarEstado(docSeleccionado.id_documento, 'Respondido')
+                          }
+                        >
+                          ✓ Marcar como Respondido
+                        </button>
+                      </>
+                    )}
+                    {docSeleccionado.estado === 'Derivado' && (
                       <button
                         type="button"
                         className="btn-primary"
                         style={{ background: '#047857' }}
                         onClick={() =>
-                          handleCambiarEstado(docSeleccionado.id_documento, 'Respondido')
+                          handleCambiarEstado(docSeleccionado.id_documento, 'Finalizado')
                         }
                       >
-                        ✓ Marcar como Respondido
+                        🏁 Finalizar Trámite
                       </button>
                     )}
                     {(docSeleccionado.estado === 'Pendiente' ||
-                      docSeleccionado.estado === 'Respondido') && (
+                      docSeleccionado.estado === 'Respondido' ||
+                      docSeleccionado.estado === 'Finalizado') && (
                       <button
                         type="button"
                         className="btn-secondary"

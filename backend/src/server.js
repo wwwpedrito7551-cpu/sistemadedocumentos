@@ -36,8 +36,17 @@ app.use((err, _req, res, _next) => {
   res.status(status).json({ error: status === 500 ? 'Error interno del servidor' : err.message });
 });
 
+// Servidor API Sistema Automatizado de Archivos - v1.1 Recepcion
 const port = process.env.PORT || 4000;
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`API escuchando en http://localhost:${port}`);
   iniciarTareas();
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`El puerto ${port} ya está en uso (el backend ya está corriendo en otra terminal).`);
+    process.exit(0);
+  }
+  throw err;
 });

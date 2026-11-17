@@ -9,10 +9,13 @@ import { upload, STORAGE_ROOT } from '../middleware/upload.js';
 const router = Router();
 const ESCRITURA = requireRol('Administrador', 'Secretaria');
 
-// Transiciones permitidas entre estados
+// Transiciones permitidas entre estados (incluye estados originales y de recepción)
 const TRANSICIONES = {
-  Pendiente: ['Respondido', 'Archivado'],
-  Respondido: ['Archivado'],
+  Recibido: ['Pendiente', 'Derivado', 'Respondido', 'Finalizado', 'Archivado'],
+  Pendiente: ['Derivado', 'Respondido', 'Finalizado', 'Archivado'],
+  Derivado: ['Pendiente', 'Respondido', 'Finalizado', 'Archivado'],
+  Respondido: ['Finalizado', 'Archivado'],
+  Finalizado: ['Archivado'],
   Archivado: [],
 };
 
@@ -23,6 +26,21 @@ function rutaSegura(relativa) {
   return abs;
 }
 
+// ---------- Obtener datos automáticos para el formulario de recepción ----------
+router.get('/proximo-recepcion', asyncH(async (_req, res) => {
+  const { rows } = await query(`
+    SELECT
+      'REC-' || lpad(
+        (COALESCE((SELECT last_value FROM seq_numero_recepcion WHERE is_called), 0) + 1)::text,
+        4,
+        '0'
+      ) AS proximo_numero_recepcion,
+      to_char(CURRENT_DATE, 'YYYY-MM-DD') AS fecha_actual,
+      to_char(CURRENT_TIMESTAMP, 'HH24:MI:SS') AS hora_actual
+  `);
+  res.json(rows[0]);
+}));
+
 // ---------- Registrar documento (recepción + registro + clasificación) ----------
 router.post('/', ESCRITURA, upload.single('archivo'), asyncH(async (req, res) => {
   const file = req.file;
@@ -30,7 +48,20 @@ router.post('/', ESCRITURA, upload.single('archivo'), asyncH(async (req, res) =>
 
   const limpiar = () => fs.rm(file.path, { force: true });
   try {
-    const { tipo_documento, remitente, asunto, id_categoria, fecha_vencimiento } = req.body;
+    const {
+      tipo_documento,
+      remitente,
+      asunto,
+      id_categoria,
+      fecha_vencimiento,
+      destinatario,
+      responsable_recepcion,
+      medio_recepcion,
+      cantidad_anexos,
+      observaciones,
+      estado,
+    } = req.body;
+
     if (!tipo_documento || !remitente || !asunto || !id_categoria) {
       throw new HttpError(400, 'Faltan: tipo_documento, remitente, asunto, id_categoria');
     }
@@ -45,20 +76,42 @@ router.post('/', ESCRITURA, upload.single('archivo'), asyncH(async (req, res) =>
     const dir = rutaSegura(cat.rows[0].carpeta);
     await fs.mkdir(dir, { recursive: true });
 
+    const estadoValido = ['Recibido', 'Pendiente', 'Derivado', 'Finalizado', 'Respondido', 'Archivado'].includes(estado)
+      ? estado
+      : 'Recibido';
+    const medioValido = medio_recepcion || 'Presencial';
+    const anexosNum = Math.max(parseInt(cantidad_anexos, 10) || 0, 0);
+    const responsableFinal = (responsable_recepcion || req.user.nombre || '').trim();
+
     let destino;
     const doc = await tx(async (c) => {
       // Para que el trigger de historial sepa quién hizo el cambio
       await c.query("SELECT set_config('app.id_usuario', $1, true)", [String(req.user.id)]);
 
-      // numero_documento se omite a propósito: lo genera trg_generar_numero
+      // numero_documento, numero_recepcion, fecha_recepcion y hora_recepcion los genera trg_generar_numero
       const { rows } = await c.query(
         `INSERT INTO documentos
-           (tipo_documento, remitente, asunto, id_categoria, id_usuario, fecha_vencimiento, hash_archivo)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
-         RETURNING id_documento, numero_documento`,
-        [tipo_documento, remitente, asunto, id_categoria, req.user.id, fecha_vencimiento || null, hash],
+           (tipo_documento, remitente, asunto, id_categoria, id_usuario, fecha_vencimiento, hash_archivo,
+            destinatario, responsable_recepcion, medio_recepcion, cantidad_anexos, observaciones, estado)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         RETURNING id_documento, numero_documento, numero_recepcion, fecha_recepcion, hora_recepcion`,
+        [
+          tipo_documento,
+          remitente,
+          asunto,
+          id_categoria,
+          req.user.id,
+          fecha_vencimiento || null,
+          hash,
+          destinatario || null,
+          responsableFinal || null,
+          medioValido,
+          anexosNum,
+          observaciones || null,
+          estadoValido,
+        ],
       );
-      const { id_documento, numero_documento } = rows[0];
+      const { id_documento, numero_documento, numero_recepcion } = rows[0];
 
       const ext = path.extname(file.originalname).toLowerCase();
       destino = path.join(dir, `${numero_documento}${ext}`);
@@ -69,7 +122,7 @@ router.post('/', ESCRITURA, upload.single('archivo'), asyncH(async (req, res) =>
         'UPDATE documentos SET ruta_archivo = $1, nombre_original = $2 WHERE id_documento = $3',
         [ruta, file.originalname, id_documento],
       );
-      return { id_documento, numero_documento, ruta_archivo: ruta };
+      return { id_documento, numero_documento, numero_recepcion, ruta_archivo: ruta };
     }).catch(async (err) => {
       if (destino) await fs.rm(destino, { force: true });
       throw err;
@@ -85,11 +138,12 @@ router.post('/', ESCRITURA, upload.single('archivo'), asyncH(async (req, res) =>
 router.get('/resumen', asyncH(async (_req, res) => {
   const { rows } = await query(`
     SELECT
-      COUNT(*) FILTER (WHERE estado = 'Pendiente')  AS pendientes,
-      COUNT(*) FILTER (WHERE estado = 'Respondido') AS respondidos,
-      COUNT(*) FILTER (WHERE estado = 'Archivado')  AS archivados,
-      COUNT(*) FILTER (WHERE estado = 'Pendiente' AND fecha_vencimiento < CURRENT_DATE) AS vencidos,
-      COUNT(*) FILTER (WHERE estado = 'Pendiente'
+      COUNT(*) FILTER (WHERE estado IN ('Pendiente', 'Recibido', 'Derivado')) AS pendientes,
+      COUNT(*) FILTER (WHERE estado IN ('Respondido', 'Finalizado'))          AS respondidos,
+      COUNT(*) FILTER (WHERE estado = 'Archivado')                            AS archivados,
+      COUNT(*) FILTER (WHERE estado IN ('Pendiente', 'Recibido', 'Derivado')
+                         AND fecha_vencimiento < CURRENT_DATE)                AS vencidos,
+      COUNT(*) FILTER (WHERE estado IN ('Pendiente', 'Recibido', 'Derivado')
                          AND fecha_vencimiento BETWEEN CURRENT_DATE AND CURRENT_DATE + 3) AS por_vencer
     FROM documentos`);
   res.json(rows[0]);
@@ -110,17 +164,20 @@ router.get('/', asyncH(async (req, res) => {
   if (desde) add('d.fecha_recepcion >= ?', desde);
   if (hasta) add("d.fecha_recepcion < (?::date + 1)", hasta);
   if (q) {
-    // Un solo parámetro reutilizado en las 3 columnas
     params.push(`%${q}%`);
     const p = `$${params.length}`;
-    where.push(`(d.remitente ILIKE ${p} OR d.asunto ILIKE ${p} OR d.numero_documento ILIKE ${p})`);
+    where.push(
+      `(d.remitente ILIKE ${p} OR d.asunto ILIKE ${p} OR d.numero_documento ILIKE ${p} OR d.numero_recepcion ILIKE ${p} OR d.destinatario ILIKE ${p})`,
+    );
   }
 
   const filtro = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const total = await query(`SELECT COUNT(*)::int AS n FROM documentos d ${filtro}`, params);
   const { rows } = await query(
-    `SELECT d.id_documento, d.numero_documento, d.tipo_documento, d.remitente, d.asunto,
-            d.estado, d.fecha_recepcion, d.fecha_vencimiento, c.nombre AS categoria
+    `SELECT d.id_documento, d.numero_documento, d.numero_recepcion, d.tipo_documento,
+            d.remitente, d.destinatario, d.responsable_recepcion, d.medio_recepcion,
+            d.cantidad_anexos, d.observaciones, d.asunto, d.estado,
+            d.fecha_recepcion, d.hora_recepcion, d.fecha_vencimiento, c.nombre AS categoria
      FROM documentos d JOIN categorias c USING (id_categoria)
      ${filtro}
      ORDER BY d.fecha_recepcion DESC
@@ -168,7 +225,7 @@ router.get('/:id/archivo', asyncH(async (req, res) => {
   res.download(fullPath, rows[0].nombre_original);
 }));
 
-// ---------- Cambiar estado (Pendiente → Respondido → Archivado) ----------
+// ---------- Cambiar estado ----------
 router.patch('/:id/estado', ESCRITURA, asyncH(async (req, res) => {
   const { estado } = req.body;
 
