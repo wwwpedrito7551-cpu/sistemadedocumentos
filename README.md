@@ -1,37 +1,66 @@
 # Sistema Automatizado de Archivos y Gestión Documental (S.G.D.)
 
-**Facultad Integral de Ichilo · Ingeniería en Sistemas**
+**Facultad Integral de Ichilo · Universidad Autónoma Gabriel René Moreno**  
+*Módulos Oficiales de Dirección de Carrera (Ingeniería en Sistemas)*
 
-Sistema web integral para la digitalización, recepción, clasificación, seguimiento y control de vencimiento de documentos institucionales.
+Sistema integral web para la digitalización, recepción, clasificación, correlativos anuales, seguimiento y control documental institucional.
 
 ---
 
-## 🏛️ Características Principales
+## 🏛️ Módulos Oficiales de Dirección de Carrera
 
-- **Módulo de Recepción y Registro de Documentos**:
-  - Número de recepción automático con secuencia correlativa (`REC-0001`, `REC-0002`...).
-  - Registro automático de fecha y hora exacta de recepción.
-  - Registro de remitente, destinatario o departamento, responsable de recepción y medio (presencial o digital).
-  - Control de cantidad de anexos y observaciones del trámite.
-  - Gestión de estados de trámite: `Recibido`, `Pendiente`, `Derivado`, `Respondido`, `Finalizado`, `Archivado`.
-- **Digitalización y Deduplicación**:
-  - Almacenamiento seguro en disco con control de rutas y prevención de path traversal.
-  - Deduplicación por hash criptográfico **SHA-256** para evitar archivos duplicados.
-  - Visor integrado de archivos PDF e imágenes en la plataforma.
-- **Trazabilidad y Auditoría (PostgreSQL Triggers)**:
-  - Registro automático de cada cambio de estado en `historial_documentos` asociando al usuario responsable.
-  - Cola automatizada de alertas y notificaciones con soporte de despachador cron diario.
-- **Seguridad y Control de Acceso (RBAC)**:
-  - Autenticación mediante tokens JWT y contraseñas cifradas con bcrypt (coste 12).
-  - Roles definidos: **`Administrador`**, **`Secretaria`** y **`Consulta`**.
+Con base en la operativa real de la Dirección de Carrera (entrevista a la Dirección), el sistema cuenta con 5 módulos troncales:
+
+### 1. 📤 Documentos Expedidos (Oficios y Notas Oficiales)
+- Numeración correlativa anual obligatoria (`OF-2026-0112`, etc.) que se reinicia a `01` cada primero de enero.
+- Control de notas y oficios emitidos hacia Decanato, Vicedecanatura, DPA, docentes y estudiantes.
+- Adjunto digital escaneado con previsualización inline y descarga de copias originales.
+
+### 2. 📥 Documentos Recibidos (Mesa de Entradas y Partes)
+- Número de recepción correlativo automático (`REC-0001`, `REC-0002`...).
+- Fecha y hora exactas registradas automáticamente al momento de la recepción.
+- **Sistema de Semáforo de Gestión**:
+  - 🔴 **Pendiente**: Trámite recibido en espera de atención o derivación.
+  - 🟡 **En curso**: Trámite derivado o en revisión técnica.
+  - 🟢 **Completado**: Trámite atendido con respuesta emitida o finalizado.
+- **Control de Respuesta Obligatoria**: Identificación rápida de solicitudes de estudiantes o notas externas que requieren respuesta escrita frente a circulares puramente informativas.
+
+### 3. 🎓 Actas de Graduación y Titulación
+- Registro con **Código Único CPD** (proporcionado por el Centro de Procesamiento de Datos).
+- Control de estudiante (Nombre completo, Registro Universitario, Cédula de Identidad).
+- Calificación y nota final sobre 100 puntos.
+- Clasificación por áreas y modalidades oficiales:
+  - **Graduación Directa**: *Excelencia Académica*, *Buen Rendimiento*, *Buen Desempeño*.
+  - **GRL001 - Modalidades con Defensa**: *Tesis de Grado*, *Trabajo Dirigido*, *Examen de Grado*, *Proyecto de Grado*, *Diplomado*.
+- **Distribución Reglamentaria**: Registro de 1 ejemplar al CPD, 3 ejemplares a Caja Central y 1 ejemplar al Archivo de Dirección de Carrera.
+- Archivo digitalizado del acta firmada con visor y descarga.
+
+### 4. 👥 Auxiliares de Cátedra y Docencia
+- Seguimiento por materia (ej. Cálculo I, Estructuras Discretas, Programación I) y periodo académico (`2026 - 2do Semestre`).
+- Estudiante auxiliar: Nombre completo, Registro y CI.
+- Nota del examen de concurso de méritos.
+- **Tipo de Designación**:
+  - **Convocatoria**: Concurso público de méritos y examen (1er semestre).
+  - **Ratificación**: Ratificación semestral para el 2do semestre mediante propuesta al Consejo de Carrera.
+- Registro de N° de oficio de propuesta de Dirección y N° de resolución de Consejo de Carrera.
+- Botón de acción rápida: *Ratificar para el siguiente periodo*.
+
+### 5. 👨‍🏫 Plantel Docente (Files Digitales de Cátedra)
+- Carpeta digital por docente con control de 4 documentos clave:
+  1. 📄 **Currículum Vitae (CV)** actualizado.
+  2. 📑 **Programa Analítico** de la materia impartida.
+  3. 📊 **Informe Final de Cátedra** semestral.
+  4. 📝 **Lista de Asistencia** de alumnos para habilitación.
+- **Indicador de Semáforo**: Identificación de docentes con *Informe Final Entregado* (Verde) vs. *Informe Pendiente* (Rojo).
+- Carga y reemplazo independiente de archivos digitales en cada file de docente.
 
 ---
 
 ## 🛠️ Tecnologías Utilizadas
 
-- **Frontend**: React 19, Vite, CSS modular institucional.
+- **Frontend**: React 19, Vite, CSS modular institucional Gabriel René Moreno.
 - **Backend**: Node.js (ES Modules), Express, Multer, pg, jsonwebtoken, bcryptjs, node-cron, helmet, cors.
-- **Base de Datos**: PostgreSQL 17.
+- **Base de Datos**: PostgreSQL 17 con triggers automáticos de correlativos, historial y auditoría.
 
 ---
 
@@ -39,17 +68,33 @@ Sistema web integral para la digitalización, recepción, clasificación, seguim
 
 ```text
 ├── backend/
-│   ├── sql/                 # Scripts SQL (esquema, triggers y recepción)
+│   ├── sql/
+│   │   ├── 001_schema.sql             # Tablas base, roles y triggers
+│   │   ├── 002_backend.sql            # Secuencias y categorías iniciales
+│   │   ├── 003_recepcion_campos.sql   # Campos de mesa de partes
+│   │   └── 004_direccion_carrera.sql  # Módulos: Expedidos, Actas, Auxiliares, Docentes
 │   ├── src/
-│   │   ├── routes/          # Endpoints: auth, categorias, documentos, notificaciones
-│   │   ├── middleware/      # Autenticación JWT, control de roles y subida con multer
-│   │   ├── jobs/            # Tareas programadas (alertas de vencimiento)
-│   │   ├── db.js            # Conexión y transacciones a PostgreSQL
-│   │   └── server.js        # Punto de entrada de la API Express
+│   │   ├── routes/
+│   │   │   ├── actas.js               # API Actas de Graduación y CPD
+│   │   │   ├── auxiliares.js          # API Auxiliares de Cátedra
+│   │   │   ├── docentes.js            # API Files Docentes y 4 documentos
+│   │   │   ├── documentos.js          # API Documentos, Recepción y Oficios
+│   │   │   ├── auth.js                # Login y usuarios
+│   │   │   └── categorias.js          # Categorías
+│   │   ├── db.js                      # Conexión pool PostgreSQL
+│   │   └── server.js                  # Servidor Express
 │   └── package.json
 ├── frontend/
-│   ├── src/                 # Componentes React, interfaz institucional y llamadas API
-│   ├── index.html           # Plantilla principal
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── DocumentosExpedidos.jsx  # Vista y modal de Oficios expedidos
+│   │   │   ├── DocumentosRecibidos.jsx   # Vista de Mesa de Partes y semáforos
+│   │   │   ├── ActasGraduacion.jsx      # Vista de Actas CPD y modalidades
+│   │   │   ├── AuxiliaresCatedra.jsx    # Vista de Auxiliares y ratificaciones
+│   │   │   └── PlantelDocente.jsx       # Vista de files de docentes
+│   │   ├── App.jsx                      # Shell principal y navegación
+│   │   ├── App.css                      # Estilos institucionales
+│   │   └── api.js                       # Cliente HTTP y gestión de sesión
 │   └── package.json
 └── README.md
 ```
@@ -58,38 +103,32 @@ Sistema web integral para la digitalización, recepción, clasificación, seguim
 
 ## 🚀 Puesta en Marcha
 
-### 1. Requisitos Previos
-- **Node.js** v20 o superior.
-- **PostgreSQL** v15 o superior con una base de datos creada (ej. `gestor_de_documentos`).
+### 1. Base de Datos (PostgreSQL 17)
+Con la base de datos `gestor_de_documentos` creada en PostgreSQL:
+```bash
+psql -U postgres -d gestor_de_documentos -f backend/sql/001_schema.sql
+psql -U postgres -d gestor_de_documentos -f backend/sql/002_backend.sql
+psql -U postgres -d gestor_de_documentos -f backend/sql/003_recepcion_campos.sql
+psql -U postgres -d gestor_de_documentos -f backend/sql/004_direccion_carrera.sql
+```
 
-### 2. Configurar el Backend
+### 2. Iniciar el Backend (Puerto 4000)
 ```bash
 cd backend
 npm install
-```
-Crear o verificar el archivo `.env` en la carpeta `backend/`:
-```env
-PORT=4000
-DATABASE_URL=postgresql://postgres:tu_password@localhost:5432/gestor_de_documentos
-JWT_SECRET=tu_secreto_jwt_seguro
-STORAGE_ROOT=./storage
-CORS_ORIGIN=http://localhost:5173
-```
-Ejecutar los scripts de base de datos en PostgreSQL:
-```bash
-psql -U postgres -d gestor_de_documentos -f sql/001_schema.sql
-psql -U postgres -d gestor_de_documentos -f sql/002_backend.sql
-psql -U postgres -d gestor_de_documentos -f sql/003_recepcion_campos.sql
-```
-Iniciar el servidor:
-```bash
 npm run dev
 ```
 
-### 3. Configurar el Frontend
+### 3. Iniciar el Frontend (Puerto 5173)
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-La aplicación estará disponible en `http://localhost:5173`.
+
+Abre en tu navegador:  
+👉 **`http://localhost:5173`**
+
+### 🔑 Credenciales de Acceso
+- **Usuario**: `admin` (o `www.pedrito7551@gmail.com`)
+- **Contraseña**: `admin123456`

@@ -41,6 +41,21 @@ router.get('/proximo-recepcion', asyncH(async (_req, res) => {
   res.json(rows[0]);
 }));
 
+// ---------- Obtener próximo número correlativo de oficio expedido ----------
+router.get('/proximo-oficio', asyncH(async (req, res) => {
+  const gestion = parseInt(req.query.gestion, 10) || new Date().getFullYear();
+  const { rows } = await query(`
+    SELECT
+      'OF-' || $1 || '-' || lpad(
+        (COALESCE((SELECT last_value FROM seq_oficio_expedido WHERE is_called), 111) + 1)::text,
+        4,
+        '0'
+      ) AS proximo_numero_oficio,
+      to_char(CURRENT_DATE, 'YYYY-MM-DD') AS fecha_actual
+  `, [gestion]);
+  res.json(rows[0]);
+}));
+
 // ---------- Registrar documento (recepción + registro + clasificación) ----------
 router.post('/', ESCRITURA, upload.single('archivo'), asyncH(async (req, res) => {
   const file = req.file;
@@ -60,6 +75,11 @@ router.post('/', ESCRITURA, upload.single('archivo'), asyncH(async (req, res) =>
       cantidad_anexos,
       observaciones,
       estado,
+      clasificacion_flujo,
+      gestion,
+      numero_oficio,
+      requiere_respuesta,
+      estado_semaforo,
     } = req.body;
 
     if (!tipo_documento || !remitente || !asunto || !id_categoria) {
@@ -83,6 +103,13 @@ router.post('/', ESCRITURA, upload.single('archivo'), asyncH(async (req, res) =>
     const anexosNum = Math.max(parseInt(cantidad_anexos, 10) || 0, 0);
     const responsableFinal = (responsable_recepcion || req.user.nombre || '').trim();
 
+    const flujoValido = clasificacion_flujo === 'Expedido' ? 'Expedido' : 'Recibido';
+    const gestionNum = parseInt(gestion, 10) || new Date().getFullYear();
+    const semaforoValido = ['Pendiente', 'En curso', 'Completado'].includes(estado_semaforo)
+      ? estado_semaforo
+      : 'Pendiente';
+    const reqResp = requiere_respuesta === true || requiere_respuesta === 'true' || requiere_respuesta === '1';
+
     let destino;
     const doc = await tx(async (c) => {
       // Para que el trigger de historial sepa quién hizo el cambio
@@ -92,9 +119,10 @@ router.post('/', ESCRITURA, upload.single('archivo'), asyncH(async (req, res) =>
       const { rows } = await c.query(
         `INSERT INTO documentos
            (tipo_documento, remitente, asunto, id_categoria, id_usuario, fecha_vencimiento, hash_archivo,
-            destinatario, responsable_recepcion, medio_recepcion, cantidad_anexos, observaciones, estado)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-         RETURNING id_documento, numero_documento, numero_recepcion, fecha_recepcion, hora_recepcion`,
+            destinatario, responsable_recepcion, medio_recepcion, cantidad_anexos, observaciones, estado,
+            clasificacion_flujo, gestion, numero_oficio, requiere_respuesta, estado_semaforo)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+         RETURNING id_documento, numero_documento, numero_recepcion, numero_oficio, clasificacion_flujo, gestion, fecha_recepcion, hora_recepcion`,
         [
           tipo_documento,
           remitente,
@@ -109,9 +137,14 @@ router.post('/', ESCRITURA, upload.single('archivo'), asyncH(async (req, res) =>
           anexosNum,
           observaciones || null,
           estadoValido,
+          flujoValido,
+          gestionNum,
+          numero_oficio || null,
+          reqResp,
+          semaforoValido,
         ],
       );
-      const { id_documento, numero_documento, numero_recepcion } = rows[0];
+      const { id_documento, numero_documento, numero_recepcion, numero_oficio: nof, clasificacion_flujo: cfl } = rows[0];
 
       const ext = path.extname(file.originalname).toLowerCase();
       destino = path.join(dir, `${numero_documento}${ext}`);
@@ -122,7 +155,7 @@ router.post('/', ESCRITURA, upload.single('archivo'), asyncH(async (req, res) =>
         'UPDATE documentos SET ruta_archivo = $1, nombre_original = $2 WHERE id_documento = $3',
         [ruta, file.originalname, id_documento],
       );
-      return { id_documento, numero_documento, numero_recepcion, ruta_archivo: ruta };
+      return { id_documento, numero_documento, numero_recepcion, numero_oficio: nof, clasificacion_flujo: cfl, ruta_archivo: ruta };
     }).catch(async (err) => {
       if (destino) await fs.rm(destino, { force: true });
       throw err;
@@ -138,6 +171,11 @@ router.post('/', ESCRITURA, upload.single('archivo'), asyncH(async (req, res) =>
 router.get('/resumen', asyncH(async (_req, res) => {
   const { rows } = await query(`
     SELECT
+      COUNT(*) FILTER (WHERE clasificacion_flujo = 'Expedido')                AS total_expedidos,
+      COUNT(*) FILTER (WHERE clasificacion_flujo = 'Recibido')                AS total_recibidos,
+      COUNT(*) FILTER (WHERE estado_semaforo = 'Pendiente')                   AS semaforo_rojo,
+      COUNT(*) FILTER (WHERE estado_semaforo = 'En curso')                    AS semaforo_amarillo,
+      COUNT(*) FILTER (WHERE estado_semaforo = 'Completado')                  AS semaforo_verde,
       COUNT(*) FILTER (WHERE estado IN ('Pendiente', 'Recibido', 'Derivado')) AS pendientes,
       COUNT(*) FILTER (WHERE estado IN ('Respondido', 'Finalizado'))          AS respondidos,
       COUNT(*) FILTER (WHERE estado = 'Archivado')                            AS archivados,
@@ -151,7 +189,7 @@ router.get('/resumen', asyncH(async (_req, res) => {
 
 // ---------- Listado con filtros y paginación ----------
 router.get('/', asyncH(async (req, res) => {
-  const { estado, id_categoria, q, desde, hasta } = req.query;
+  const { estado, id_categoria, q, desde, hasta, flujo, gestion, semaforo } = req.query;
   const limit = Math.min(Number(req.query.limit) || 20, 100);
   const offset = (Math.max(Number(req.query.page) || 1, 1) - 1) * limit;
 
@@ -159,6 +197,9 @@ router.get('/', asyncH(async (req, res) => {
   const params = [];
   const add = (sql, value) => { params.push(value); where.push(sql.replace('?', `$${params.length}`)); };
 
+  if (flujo) add('d.clasificacion_flujo = ?', flujo);
+  if (gestion) add('d.gestion = ?', parseInt(gestion, 10));
+  if (semaforo) add('d.estado_semaforo = ?', semaforo);
   if (estado) add('d.estado = ?', estado);
   if (id_categoria) add('d.id_categoria = ?', id_categoria);
   if (desde) add('d.fecha_recepcion >= ?', desde);
@@ -167,20 +208,22 @@ router.get('/', asyncH(async (req, res) => {
     params.push(`%${q}%`);
     const p = `$${params.length}`;
     where.push(
-      `(d.remitente ILIKE ${p} OR d.asunto ILIKE ${p} OR d.numero_documento ILIKE ${p} OR d.numero_recepcion ILIKE ${p} OR d.destinatario ILIKE ${p})`,
+      `(d.remitente ILIKE ${p} OR d.asunto ILIKE ${p} OR d.numero_documento ILIKE ${p} OR d.numero_recepcion ILIKE ${p} OR d.numero_oficio ILIKE ${p} OR d.destinatario ILIKE ${p})`,
     );
   }
 
   const filtro = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const total = await query(`SELECT COUNT(*)::int AS n FROM documentos d ${filtro}`, params);
   const { rows } = await query(
-    `SELECT d.id_documento, d.numero_documento, d.numero_recepcion, d.tipo_documento,
+    `SELECT d.id_documento, d.numero_documento, d.numero_recepcion, d.numero_oficio, d.tipo_documento,
             d.remitente, d.destinatario, d.responsable_recepcion, d.medio_recepcion,
             d.cantidad_anexos, d.observaciones, d.asunto, d.estado,
-            d.fecha_recepcion, d.hora_recepcion, d.fecha_vencimiento, c.nombre AS categoria
+            d.clasificacion_flujo, d.gestion, d.requiere_respuesta, d.estado_semaforo,
+            d.fecha_recepcion, d.hora_recepcion, d.fecha_vencimiento, c.nombre AS categoria,
+            d.ruta_archivo IS NOT NULL AS tiene_archivo
      FROM documentos d JOIN categorias c USING (id_categoria)
      ${filtro}
-     ORDER BY d.fecha_recepcion DESC
+     ORDER BY d.fecha_recepcion DESC, d.id_documento DESC
      LIMIT ${limit} OFFSET ${offset}`,
     params,
   );
@@ -250,6 +293,20 @@ router.patch('/:id/estado', ESCRITURA, asyncH(async (req, res) => {
     return rows[0];
   });
   res.json(result);
+}));
+
+// ---------- Cambiar semáforo (Pendiente, En curso, Completado) ----------
+router.patch('/:id/semaforo', ESCRITURA, asyncH(async (req, res) => {
+  const { estado_semaforo } = req.body;
+  if (!['Pendiente', 'En curso', 'Completado'].includes(estado_semaforo)) {
+    throw new HttpError(400, 'Estado de semáforo inválido (Pendiente, En curso, Completado)');
+  }
+  const { rows } = await query(
+    'UPDATE documentos SET estado_semaforo = $1 WHERE id_documento = $2 RETURNING id_documento, numero_documento, estado_semaforo',
+    [estado_semaforo, req.params.id],
+  );
+  if (!rows.length) throw new HttpError(404, 'Documento no encontrado');
+  res.json(rows[0]);
 }));
 
 export default router;

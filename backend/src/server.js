@@ -7,6 +7,9 @@ import authRoutes from './routes/auth.js';
 import categoriasRoutes from './routes/categorias.js';
 import documentosRoutes from './routes/documentos.js';
 import notificacionesRoutes from './routes/notificaciones.js';
+import actasRoutes from './routes/actas.js';
+import auxiliaresRoutes from './routes/auxiliares.js';
+import docentesRoutes from './routes/docentes.js';
 import { requireAuth } from './middleware/auth.js';
 import { iniciarTareas } from './jobs/scheduler.js';
 
@@ -25,6 +28,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/categorias', requireAuth, categoriasRoutes);
 app.use('/api/documentos', requireAuth, documentosRoutes);
 app.use('/api/notificaciones', requireAuth, notificacionesRoutes);
+app.use('/api/actas', requireAuth, actasRoutes);
+app.use('/api/auxiliares', requireAuth, auxiliaresRoutes);
+app.use('/api/docentes', requireAuth, docentesRoutes);
 
 // Manejo central de errores
 app.use((err, _req, res, _next) => {

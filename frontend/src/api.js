@@ -52,17 +52,19 @@ export async function apiFetch(endpoint, options = {}) {
 }
 
 export async function fetchArchivoBlob(id, inline = false) {
+  return fetchBlobUrl(`/documentos/${id}/archivo`, inline);
+}
+
+export async function fetchBlobUrl(urlPath, inline = false) {
   const token = getToken();
-  const res = await fetch(
-    `${API_BASE}/documentos/${id}/archivo${inline ? '?inline=1' : ''}`,
-    {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    }
-  );
+  const sep = urlPath.includes('?') ? '&' : '?';
+  const full = `${API_BASE}${urlPath}${inline ? `${sep}inline=1` : ''}`;
+  const res = await fetch(full, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'No se pudo obtener el archivo');
   }
-  const blob = await res.blob();
-  return blob;
+  return await res.blob();
 }

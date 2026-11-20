@@ -7,6 +7,11 @@ import {
   clearSession,
 } from './api.js';
 import './App.css';
+import DocumentosExpedidos from './components/DocumentosExpedidos.jsx';
+import DocumentosRecibidos from './components/DocumentosRecibidos.jsx';
+import ActasGraduacion from './components/ActasGraduacion.jsx';
+import AuxiliaresCatedra from './components/AuxiliaresCatedra.jsx';
+import PlantelDocente from './components/PlantelDocente.jsx';
 
 const MESES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -602,7 +607,7 @@ export default function App() {
         {/* Sidebar clásico azul acero como en el diseño de referencia */}
         <aside className="classic-sidebar">
           <div className="sidebar-header-title">
-            Consultas y<br />Módulos
+            Dirección de<br />Carrera
           </div>
           <nav className="sidebar-menu-list">
             <button
@@ -612,64 +617,74 @@ export default function App() {
                 setFiltroEstado('');
               }}
             >
-              <span>Bandeja General</span>
+              <span>📂 Bandeja General</span>
               <span className="sidebar-badge">{totalDocs}</span>
             </button>
+
+            <button
+              className={`sidebar-btn ${vistaActiva === 'expedidos' ? 'active' : ''}`}
+              onClick={() => setVistaActiva('expedidos')}
+            >
+              <span>📤 Doc. Expedidos</span>
+              <span className="sidebar-badge" style={{ background: '#1e3a8a' }}>Oficios</span>
+            </button>
+
+            <button
+              className={`sidebar-btn ${vistaActiva === 'recibidos' ? 'active' : ''}`}
+              onClick={() => setVistaActiva('recibidos')}
+            >
+              <span>📥 Doc. Recibidos</span>
+              <span className="sidebar-badge" style={{ background: '#0284c7' }}>Mesa</span>
+            </button>
+
+            <button
+              className={`sidebar-btn ${vistaActiva === 'actas' ? 'active' : ''}`}
+              onClick={() => setVistaActiva('actas')}
+            >
+              <span>🎓 Actas Graduación</span>
+              <span className="sidebar-badge" style={{ background: '#7c3aed' }}>CPD</span>
+            </button>
+
+            <button
+              className={`sidebar-btn ${vistaActiva === 'auxiliares' ? 'active' : ''}`}
+              onClick={() => setVistaActiva('auxiliares')}
+            >
+              <span>👥 Auxiliares Cátedra</span>
+              <span className="sidebar-badge" style={{ background: '#059669' }}>Docencia</span>
+            </button>
+
+            <button
+              className={`sidebar-btn ${vistaActiva === 'docentes' ? 'active' : ''}`}
+              onClick={() => setVistaActiva('docentes')}
+            >
+              <span>👨‍🏫 Plantel Docente</span>
+              <span className="sidebar-badge" style={{ background: '#b91c1c' }}>Files</span>
+            </button>
+
+            <div style={{ height: 1, background: '#cbd5e1', margin: '6px 4px' }} />
 
             {puedeEscribir && (
               <button
                 className="sidebar-btn"
+                style={{ background: '#f8fafc', color: '#0f172a' }}
                 onClick={() => setModalNuevoDoc(true)}
               >
-                <span>+ Registrar Documento</span>
+                <span>+ Registrar Trámite</span>
               </button>
             )}
-
-            <button
-              className={`sidebar-btn ${vistaActiva === 'bandeja' && filtroEstado === 'Pendiente' ? 'active' : ''}`}
-              onClick={() => {
-                setVistaActiva('bandeja');
-                setFiltroEstado('Pendiente');
-              }}
-            >
-              <span>Pendientes</span>
-              <span className="sidebar-badge">{resumen.pendientes}</span>
-            </button>
-
-            <button
-              className={`sidebar-btn ${vistaActiva === 'bandeja' && filtroEstado === 'Respondido' ? 'active' : ''}`}
-              onClick={() => {
-                setVistaActiva('bandeja');
-                setFiltroEstado('Respondido');
-              }}
-            >
-              <span>Respondidos</span>
-              <span className="sidebar-badge">{resumen.respondidos}</span>
-            </button>
-
-            <button
-              className={`sidebar-btn ${vistaActiva === 'bandeja' && filtroEstado === 'Archivado' ? 'active' : ''}`}
-              onClick={() => {
-                setVistaActiva('bandeja');
-                setFiltroEstado('Archivado');
-              }}
-            >
-              <span>Histórico / Archivo</span>
-              <span className="sidebar-badge">{resumen.archivados}</span>
-            </button>
 
             <button
               className={`sidebar-btn ${vistaActiva === 'categorias' ? 'active' : ''}`}
               onClick={() => setVistaActiva('categorias')}
             >
-              <span>Categorías y Carpetas</span>
+              <span>🗂️ Categorías y Carpetas</span>
             </button>
 
             <button
               className={`sidebar-btn ${vistaActiva === 'notificaciones' ? 'active' : ''}`}
               onClick={() => setVistaActiva('notificaciones')}
             >
-              <span>Alertas y Avisos</span>
+              <span>🔔 Alertas y Avisos</span>
               {notificaciones.length > 0 && (
                 <span className="sidebar-badge">{notificaciones.length}</span>
               )}
@@ -680,7 +695,7 @@ export default function App() {
                 className={`sidebar-btn ${vistaActiva === 'usuarios' ? 'active' : ''}`}
                 onClick={() => setVistaActiva('usuarios')}
               >
-                <span>Gestión de Usuarios</span>
+                <span>👤 Gestión de Usuarios</span>
               </button>
             )}
 
@@ -688,15 +703,15 @@ export default function App() {
               className={`sidebar-btn ${vistaActiva === 'perfil' ? 'active' : ''}`}
               onClick={() => setVistaActiva('perfil')}
             >
-              <span>Datos Personales</span>
+              <span>⚙️ Datos Personales</span>
             </button>
 
             <button
               className="sidebar-btn"
-              style={{ marginTop: 8, background: '#e2e8f0', color: '#991b1b' }}
+              style={{ marginTop: 8, background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca' }}
               onClick={handleLogout}
             >
-              <span>Cerrar Sesión</span>
+              <span>🚪 Cerrar Sesión</span>
             </button>
           </nav>
         </aside>
@@ -1069,6 +1084,39 @@ export default function App() {
                   </table>
                 </div>
               </section>
+            )}
+
+            {/* ==================== VISTA: DOCUMENTOS EXPEDIDOS (OFICIOS) ==================== */}
+            {vistaActiva === 'expedidos' && (
+              <DocumentosExpedidos
+                user={user}
+                categorias={categorias}
+                onVerDetalle={abrirDetalleDocumento}
+              />
+            )}
+
+            {/* ==================== VISTA: DOCUMENTOS RECIBIDOS (MESA DE PARTES) ==================== */}
+            {vistaActiva === 'recibidos' && (
+              <DocumentosRecibidos
+                user={user}
+                categorias={categorias}
+                onVerDetalle={abrirDetalleDocumento}
+              />
+            )}
+
+            {/* ==================== VISTA: ACTAS DE GRADUACIÓN ==================== */}
+            {vistaActiva === 'actas' && (
+              <ActasGraduacion user={user} />
+            )}
+
+            {/* ==================== VISTA: AUXILIARES DE CÁTEDRA ==================== */}
+            {vistaActiva === 'auxiliares' && (
+              <AuxiliaresCatedra user={user} />
+            )}
+
+            {/* ==================== VISTA: PLANTEL DOCENTE ==================== */}
+            {vistaActiva === 'docentes' && (
+              <PlantelDocente user={user} />
             )}
 
             {/* ==================== VISTA 2: CATEGORÍAS Y CARPETAS ==================== */}
