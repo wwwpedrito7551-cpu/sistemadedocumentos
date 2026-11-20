@@ -140,4 +140,77 @@ router.patch('/:id/estado', ESCRITURA, asyncH(async (req, res) => {
   res.json(rows[0]);
 }));
 
+// Modificar datos de auxiliar
+router.put('/:id', ESCRITURA, asyncH(async (req, res) => {
+  const {
+    gestion,
+    semestre,
+    materia,
+    registro_estudiante,
+    nombre_estudiante,
+    ci_estudiante,
+    nota_examen,
+    tipo_designacion,
+    numero_oficio_propuesta,
+    resolucion_consejo,
+    estado,
+    observaciones,
+  } = req.body;
+
+  const { rows } = await query(
+    `UPDATE auxiliares_catedra
+     SET gestion = COALESCE($1, gestion),
+         semestre = COALESCE($2, semestre),
+         materia = COALESCE($3, materia),
+         registro_estudiante = COALESCE($4, registro_estudiante),
+         nombre_estudiante = COALESCE($5, nombre_estudiante),
+         ci_estudiante = COALESCE($6, ci_estudiante),
+         nota_examen = $7,
+         tipo_designacion = COALESCE($8, tipo_designacion),
+         numero_oficio_propuesta = $9,
+         resolucion_consejo = $10,
+         estado = COALESCE($11, estado),
+         observaciones = $12
+     WHERE id_auxiliar = $13
+     RETURNING *`,
+    [
+      gestion ? parseInt(gestion, 10) : null,
+      semestre || null,
+      materia?.trim() || null,
+      registro_estudiante?.trim() || null,
+      nombre_estudiante?.trim() || null,
+      ci_estudiante?.trim() || null,
+      nota_examen !== undefined && nota_examen !== '' ? parseFloat(nota_examen) : null,
+      tipo_designacion || null,
+      numero_oficio_propuesta || null,
+      resolucion_consejo || null,
+      estado || null,
+      observaciones || null,
+      req.params.id,
+    ],
+  );
+
+  if (!rows.length) throw new HttpError(404, 'Auxiliar no encontrado');
+  res.json(rows[0]);
+}));
+
+// Eliminar auxiliar
+router.delete('/:id', ESCRITURA, asyncH(async (req, res) => {
+  const { rows } = await query('SELECT ruta_archivo, nombre_estudiante, materia FROM auxiliares_catedra WHERE id_auxiliar = $1', [req.params.id]);
+  if (!rows.length) throw new HttpError(404, 'Auxiliar no encontrado');
+
+  const aux = rows[0];
+  if (aux.ruta_archivo) {
+    try {
+      const full = rutaSegura(aux.ruta_archivo);
+      await fs.rm(full, { force: true });
+    } catch {
+      // Ignorar si el archivo no existía físicamente
+    }
+  }
+
+  await query('DELETE FROM auxiliares_catedra WHERE id_auxiliar = $1', [req.params.id]);
+  res.json({ ok: true, mensaje: `Auxiliar ${aux.nombre_estudiante} (${aux.materia}) eliminado exitosamente` });
+}));
+
 export default router;

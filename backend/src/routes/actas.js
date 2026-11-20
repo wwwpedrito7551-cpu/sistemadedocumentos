@@ -131,4 +131,77 @@ router.get('/:id/archivo', asyncH(async (req, res) => {
   res.download(full, rows[0].nombre_original || 'acta_graduacion.pdf');
 }));
 
+// Modificar datos de un acta de graduación
+router.put('/:id', ESCRITURA, asyncH(async (req, res) => {
+  const {
+    numero_acta,
+    codigo_cpd,
+    registro_estudiante,
+    nombre_estudiante,
+    ci_estudiante,
+    nota,
+    modalidad,
+    area_titulacion,
+    gestion,
+    fecha_emision,
+    distribucion_actas,
+    observaciones,
+  } = req.body;
+
+  const { rows } = await query(
+    `UPDATE actas_graduacion
+     SET numero_acta = COALESCE($1, numero_acta),
+         codigo_cpd = COALESCE($2, codigo_cpd),
+         registro_estudiante = COALESCE($3, registro_estudiante),
+         nombre_estudiante = COALESCE($4, nombre_estudiante),
+         ci_estudiante = COALESCE($5, ci_estudiante),
+         nota = COALESCE($6, nota),
+         modalidad = COALESCE($7, modalidad),
+         area_titulacion = COALESCE($8, area_titulacion),
+         gestion = COALESCE($9, gestion),
+         fecha_emision = COALESCE($10, fecha_emision),
+         distribucion_actas = COALESCE($11, distribucion_actas),
+         observaciones = $12
+     WHERE id_acta = $13
+     RETURNING *`,
+    [
+      numero_acta?.trim() || null,
+      codigo_cpd?.trim() || null,
+      registro_estudiante?.trim() || null,
+      nombre_estudiante?.trim() || null,
+      ci_estudiante?.trim() || null,
+      nota !== undefined ? parseFloat(nota) : null,
+      modalidad || null,
+      area_titulacion || null,
+      gestion ? parseInt(gestion, 10) : null,
+      fecha_emision || null,
+      distribucion_actas || null,
+      observaciones || null,
+      req.params.id,
+    ],
+  );
+
+  if (!rows.length) throw new HttpError(404, 'Acta no encontrada');
+  res.json(rows[0]);
+}));
+
+// Eliminar acta de graduación
+router.delete('/:id', ESCRITURA, asyncH(async (req, res) => {
+  const { rows } = await query('SELECT ruta_archivo, codigo_cpd, nombre_estudiante FROM actas_graduacion WHERE id_acta = $1', [req.params.id]);
+  if (!rows.length) throw new HttpError(404, 'Acta no encontrada');
+
+  const acta = rows[0];
+  if (acta.ruta_archivo) {
+    try {
+      const full = rutaSegura(acta.ruta_archivo);
+      await fs.rm(full, { force: true });
+    } catch {
+      // Ignorar si el archivo no existía físicamente
+    }
+  }
+
+  await query('DELETE FROM actas_graduacion WHERE id_acta = $1', [req.params.id]);
+  res.json({ ok: true, mensaje: `Acta ${acta.codigo_cpd} de ${acta.nombre_estudiante} eliminada exitosamente` });
+}));
+
 export default router;

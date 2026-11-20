@@ -298,6 +298,23 @@ export default function App() {
     }
   }
 
+  async function handleEliminarDoc(id, num) {
+    if (!window.confirm(`¿Estás seguro de que deseas ELIMINAR el documento ${num || id}? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+    try {
+      await apiFetch(`/documentos/${id}`, { method: 'DELETE' });
+      setDocSeleccionado(null);
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+        setPreviewUrl(null);
+      }
+      await cargarTodo();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
   async function handleCrearDocumento(e) {
     e.preventDefault();
     setFormMsg({ tipo: '', texto: '' });
@@ -1067,14 +1084,29 @@ export default function App() {
                                 </span>
                               </td>
                               <td style={{ textAlign: 'right' }}>
-                                <button
-                                  type="button"
-                                  className="btn-ver-link"
-                                  onClick={() => abrirDetalleDocumento(d.id_documento)}
-                                >
-                                  <span>Ver</span>
-                                  <span>›</span>
-                                </button>
+                                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                                  <button
+                                    type="button"
+                                    className="btn-ver-link"
+                                    onClick={() => abrirDetalleDocumento(d.id_documento)}
+                                  >
+                                    <span>Ver</span>
+                                    <span>›</span>
+                                  </button>
+                                  {puedeEscribir && (
+                                    <button
+                                      type="button"
+                                      className="btn-table-action btn-delete"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleEliminarDoc(d.id_documento, d.numero_recepcion || d.numero_documento);
+                                      }}
+                                      title="Eliminar este documento"
+                                    >
+                                      🗑️
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           );
@@ -1841,6 +1873,14 @@ export default function App() {
                         📁 Pasar a Archivo
                       </button>
                     )}
+                    <button
+                      type="button"
+                      className="btn-danger"
+                      style={{ background: '#dc2626', color: '#ffffff', border: 'none', padding: '6px 12px', borderRadius: 6, fontWeight: 700, cursor: 'pointer' }}
+                      onClick={() => handleEliminarDoc(docSeleccionado.id_documento, docSeleccionado.numero_recepcion || docSeleccionado.numero_documento)}
+                    >
+                      🗑️ Eliminar Documento
+                    </button>
                   </div>
                 )}
               </div>

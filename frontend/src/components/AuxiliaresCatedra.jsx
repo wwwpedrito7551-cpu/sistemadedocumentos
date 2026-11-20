@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch, fetchBlobUrl } from '../api.js';
+import ModalVisor from './ModalVisor.jsx';
 
 export default function AuxiliaresCatedra({ user }) {
   const [auxiliares, setAuxiliares] = useState([]);
@@ -17,6 +18,10 @@ export default function AuxiliaresCatedra({ user }) {
   const [modalNuevo, setModalNuevo] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
   const [msg, setMsg] = useState({ tipo: '', texto: '' });
+
+  // Estados para Modal Visor y Edición
+  const [visorDoc, setVisorDoc] = useState(null);
+  const [editandoAux, setEditandoAux] = useState(null);
 
   const [form, setForm] = useState({
     gestion: new Date().getFullYear(),
@@ -96,11 +101,28 @@ export default function AuxiliaresCatedra({ user }) {
     }
   }
 
-  async function handleVerInline(id) {
+  async function handleEliminar(id, nombre, materia) {
+    if (!window.confirm(`¿Estás seguro de que deseas ELIMINAR al auxiliar ${nombre} (${materia})? Esta acción no se puede deshacer.`)) {
+      return;
+    }
     try {
-      const blob = await fetchBlobUrl(`/auxiliares/${id}/archivo`, true);
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
+      await apiFetch(`/auxiliares/${id}`, { method: 'DELETE' });
+      await cargarDatos();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function handleGuardarEdicion(e) {
+    e.preventDefault();
+    if (!editandoAux) return;
+    try {
+      await apiFetch(`/auxiliares/${editandoAux.id_auxiliar}`, {
+        method: 'PUT',
+        body: JSON.stringify(editandoAux),
+      });
+      setEditandoAux(null);
+      await cargarDatos();
     } catch (err) {
       alert(err.message);
     }
@@ -289,8 +311,9 @@ export default function AuxiliaresCatedra({ user }) {
             ) : (
               auxiliares.map((aux) => {
                 const notaNum = parseFloat(aux.nota_examen) || null;
+                const auxId = aux.id_auxiliar;
                 return (
-                  <tr key={aux.id_auxiliar}>
+                  <tr key={auxId}>
                     <td>
                       <div style={{ fontWeight: 700, color: '#0f172a' }}>{aux.materia}</div>
                       <span className="sub-text">{aux.semestre} · {aux.gestion}</span>
@@ -340,7 +363,13 @@ export default function AuxiliaresCatedra({ user }) {
                             type="button"
                             className="btn-file-icon"
                             title="Ver documento"
-                            onClick={() => handleVerInline(aux.id_auxiliar)}
+                            onClick={() =>
+                              setVisorDoc({
+                                endpoint: `/auxiliares/${auxId}/archivo`,
+                                titulo: `Auxiliatura ${aux.materia} · ${aux.nombre_estudiante}`,
+                                nombreOriginal: `Auxiliar_${aux.registro_estudiante}.pdf`,
+                              })
+                            }
                           >
                             👁️ Ver
                           </button>
@@ -348,7 +377,7 @@ export default function AuxiliaresCatedra({ user }) {
                             type="button"
                             className="btn-file-icon"
                             title="Descargar respaldo"
-                            onClick={() => handleDescargar(aux.id_auxiliar, aux.registro_estudiante)}
+                            onClick={() => handleDescargar(auxId, aux.registro_estudiante)}
                           >
                             ⬇️
                           </button>
@@ -358,16 +387,38 @@ export default function AuxiliaresCatedra({ user }) {
                       )}
                     </td>
                     <td>
-                      {puedeEscribir && aux.estado === 'Activo' && (
-                        <button
-                          type="button"
-                          className="btn-ratificar-pill"
-                          title="Ratificar para siguiente semestre"
-                          onClick={() => handleRatificar(aux.id_auxiliar)}
-                        >
-                          ✓ Ratificar
-                        </button>
-                      )}
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        {puedeEscribir && aux.estado === 'Activo' && (
+                          <button
+                            type="button"
+                            className="btn-ratificar-pill"
+                            title="Ratificar para siguiente semestre"
+                            onClick={() => handleRatificar(auxId)}
+                          >
+                            ✓ Ratificar
+                          </button>
+                        )}
+                        {puedeEscribir && (
+                          <>
+                            <button
+                              type="button"
+                              className="btn-table-action btn-edit"
+                              onClick={() => setEditandoAux({ ...aux })}
+                              title="Editar datos de este auxiliar"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-table-action btn-delete"
+                              onClick={() => handleEliminar(auxId, aux.nombre_estudiante, aux.materia)}
+                              title="Eliminar este auxiliar permanentemente"
+                            >
+                              🗑️
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -376,6 +427,156 @@ export default function AuxiliaresCatedra({ user }) {
           </tbody>
         </table>
       </div>
+
+      {/* Modal Visor de Documento */}
+      {visorDoc && (
+        <ModalVisor
+          endpoint={visorDoc.endpoint}
+          titulo={visorDoc.titulo}
+          onClose={() => setVisorDoc(null)}
+          onDescargar={() => handleDescargar(visorDoc.endpoint.split('/')[2], 'auxiliar')}
+        />
+      )}
+
+      {/* Modal: Editar Auxiliar */}
+      {editandoAux && (
+        <div className="modal-backdrop" onClick={() => setEditandoAux(null)}>
+          <div className="modal-card modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>✏️ Modificar Auxiliar de Cátedra ({editandoAux.nombre_estudiante})</h3>
+              <button
+                type="button"
+                className="btn-close-modal"
+                onClick={() => setEditandoAux(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleGuardarEdicion}>
+              <div className="modal-body modal-form-grid">
+                <div className="form-group full">
+                  <label>Materia / Asignatura *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoAux.materia || ''}
+                    onChange={(e) => setEditandoAux({ ...editandoAux, materia: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group full">
+                  <label>Nombre del Auxiliar *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoAux.nombre_estudiante || ''}
+                    onChange={(e) => setEditandoAux({ ...editandoAux, nombre_estudiante: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Registro Universitario *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoAux.registro_estudiante || ''}
+                    onChange={(e) => setEditandoAux({ ...editandoAux, registro_estudiante: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Cédula de Identidad (CI)</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoAux.ci_estudiante || ''}
+                    onChange={(e) => setEditandoAux({ ...editandoAux, ci_estudiante: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Tipo de Designación</label>
+                  <select
+                    className="form-control"
+                    value={editandoAux.tipo_designacion}
+                    onChange={(e) => setEditandoAux({ ...editandoAux, tipo_designacion: e.target.value })}
+                  >
+                    <option value="Convocatoria">Convocatoria (Concurso y examen)</option>
+                    <option value="Ratificación">Ratificación (2do Semestre)</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Nota de Examen / Concurso</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="51"
+                    max="100"
+                    className="form-control"
+                    value={editandoAux.nota_examen || ''}
+                    onChange={(e) => setEditandoAux({ ...editandoAux, nota_examen: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Estado</label>
+                  <select
+                    className="form-control"
+                    value={editandoAux.estado}
+                    onChange={(e) => setEditandoAux({ ...editandoAux, estado: e.target.value })}
+                  >
+                    <option value="Activo">Activo</option>
+                    <option value="Ratificado">Ratificado</option>
+                    <option value="Finalizado">Finalizado</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>N° Oficio Propuesta</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoAux.numero_oficio_propuesta || ''}
+                    onChange={(e) => setEditandoAux({ ...editandoAux, numero_oficio_propuesta: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group full">
+                  <label>Observaciones</label>
+                  <textarea
+                    className="form-control"
+                    rows="2"
+                    value={editandoAux.observaciones || ''}
+                    onChange={(e) => setEditandoAux({ ...editandoAux, observaciones: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '16px 24px', borderTop: '1px solid #e2e8f0' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setEditandoAux(null)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ background: '#059669' }}
+                >
+                  Guardar Cambios
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Registrar Auxiliar */}
       {modalNuevo && (

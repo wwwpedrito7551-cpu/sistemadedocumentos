@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch, fetchBlobUrl } from '../api.js';
+import ModalVisor from './ModalVisor.jsx';
 
 export default function DocumentosExpedidos({ user, categorias, onVerDetalle }) {
   const [oficios, setOficios] = useState([]);
@@ -11,6 +12,10 @@ export default function DocumentosExpedidos({ user, categorias, onVerDetalle }) 
   const [modalNuevo, setModalNuevo] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
   const [msg, setMsg] = useState({ tipo: '', texto: '' });
+
+  // Estados para Modal Visor y Edición
+  const [visorDoc, setVisorDoc] = useState(null);
+  const [editandoDoc, setEditandoDoc] = useState(null);
 
   const [form, setForm] = useState({
     tipo_documento: 'Oficio',
@@ -74,11 +79,28 @@ export default function DocumentosExpedidos({ user, categorias, onVerDetalle }) 
     }
   }
 
-  async function handleVerInline(id) {
+  async function handleEliminar(id, num) {
+    if (!window.confirm(`¿Estás seguro de que deseas ELIMINAR el oficio ${num}? Esta acción no se puede deshacer.`)) {
+      return;
+    }
     try {
-      const blob = await fetchBlobUrl(`/documentos/${id}/archivo`, true);
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
+      await apiFetch(`/documentos/${id}`, { method: 'DELETE' });
+      await cargarDatos();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function handleGuardarEdicion(e) {
+    e.preventDefault();
+    if (!editandoDoc) return;
+    try {
+      await apiFetch(`/documentos/${editandoDoc.id_documento}`, {
+        method: 'PUT',
+        body: JSON.stringify(editandoDoc),
+      });
+      setEditandoDoc(null);
+      await cargarDatos();
     } catch (err) {
       alert(err.message);
     }
@@ -241,73 +263,213 @@ export default function DocumentosExpedidos({ user, categorias, onVerDetalle }) 
                 </td>
               </tr>
             ) : (
-              oficios.map((doc) => (
-                <tr key={doc.id_documento}>
-                  <td>
-                    <span className="badge-oficio">
-                      {doc.numero_oficio || doc.numero_documento}
-                    </span>
-                    <span className="sub-text">Gestión {doc.gestion || gestion}</span>
-                  </td>
-                  <td>
-                    <div style={{ fontWeight: 700, color: '#1e293b' }}>
-                      {doc.destinatario || '—'}
-                    </div>
-                    <span className="sub-text">Emisor: {doc.remitente || 'Dirección de Carrera'}</span>
-                  </td>
-                  <td>
-                    <div style={{ fontWeight: 600, color: '#0f172a' }}>{doc.asunto}</div>
-                    {doc.observaciones && (
-                      <span className="sub-text" style={{ fontStyle: 'italic' }}>
-                        {doc.observaciones}
+              oficios.map((doc) => {
+                const docId = doc.id_documento;
+                const num = doc.numero_oficio || doc.numero_documento;
+                return (
+                  <tr key={docId}>
+                    <td>
+                      <span className="badge-oficio">
+                        {num}
                       </span>
-                    )}
-                  </td>
-                  <td className="col-creado">
-                    {doc.fecha_recepcion?.slice(0, 10) || '—'}
-                  </td>
-                  <td>
-                    <span className="badge-categoria">{doc.categoria || 'Oficios'}</span>
-                  </td>
-                  <td>
-                    {doc.tiene_archivo ? (
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button
-                          type="button"
-                          className="btn-file-icon"
-                          title="Previsualizar archivo"
-                          onClick={() => handleVerInline(doc.id_documento)}
-                        >
-                          👁️ Ver
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-file-icon"
-                          title="Descargar copia"
-                          onClick={() => handleDescargar(doc.id_documento, doc.numero_oficio)}
-                        >
-                          ⬇️
-                        </button>
+                      <span className="sub-text">Gestión {doc.gestion || gestion}</span>
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: 700, color: '#1e293b' }}>
+                        {doc.destinatario || '—'}
                       </div>
-                    ) : (
-                      <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>Sin archivo</span>
-                    )}
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn-table-action"
-                      onClick={() => onVerDetalle && onVerDetalle(doc.id_documento)}
-                    >
-                      Detalle
-                    </button>
-                  </td>
-                </tr>
-              ))
+                      <span className="sub-text">Emisor: {doc.remitente || 'Dirección de Carrera'}</span>
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: 600, color: '#0f172a' }}>{doc.asunto}</div>
+                      {doc.observaciones && (
+                        <span className="sub-text" style={{ fontStyle: 'italic' }}>
+                          {doc.observaciones}
+                        </span>
+                      )}
+                    </td>
+                    <td className="col-creado">
+                      {doc.fecha_recepcion?.slice(0, 10) || '—'}
+                    </td>
+                    <td>
+                      <span className="badge-categoria">{doc.categoria || 'Oficios'}</span>
+                    </td>
+                    <td>
+                      {doc.tiene_archivo ? (
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            type="button"
+                            className="btn-file-icon"
+                            title="Previsualizar archivo con visor institucional"
+                            onClick={() =>
+                              setVisorDoc({
+                                endpoint: `/documentos/${docId}/archivo`,
+                                titulo: `${num} · ${doc.asunto}`,
+                                nombreOriginal: `${num}.pdf`,
+                              })
+                            }
+                          >
+                            👁️ Ver
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-file-icon"
+                            title="Descargar copia"
+                            onClick={() => handleDescargar(docId, num)}
+                          >
+                            ⬇️
+                          </button>
+                        </div>
+                      ) : (
+                        <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>Sin archivo</span>
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          className="btn-table-action"
+                          onClick={() => onVerDetalle && onVerDetalle(docId)}
+                        >
+                          Detalle
+                        </button>
+                        {puedeEscribir && (
+                          <>
+                            <button
+                              type="button"
+                              className="btn-table-action btn-edit"
+                              onClick={() => setEditandoDoc({ ...doc })}
+                              title="Editar datos del oficio"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-table-action btn-delete"
+                              onClick={() => handleEliminar(docId, num)}
+                              title="Eliminar este oficio permanentemente"
+                            >
+                              🗑️
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Modal Visor de Documento */}
+      {visorDoc && (
+        <ModalVisor
+          endpoint={visorDoc.endpoint}
+          titulo={visorDoc.titulo}
+          onClose={() => setVisorDoc(null)}
+          onDescargar={() => handleDescargar(visorDoc.endpoint.split('/')[2], visorDoc.nombreOriginal)}
+        />
+      )}
+
+      {/* Modal: Editar Oficio Expedido */}
+      {editandoDoc && (
+        <div className="modal-backdrop" onClick={() => setEditandoDoc(null)}>
+          <div className="modal-card modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>✏️ Modificar Oficio ({editandoDoc.numero_oficio || editandoDoc.numero_documento})</h3>
+              <button
+                type="button"
+                className="btn-close-modal"
+                onClick={() => setEditandoDoc(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleGuardarEdicion}>
+              <div className="modal-body modal-form-grid">
+                <div className="form-group full">
+                  <label>Destinatario *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoDoc.destinatario || ''}
+                    onChange={(e) => setEditandoDoc({ ...editandoDoc, destinatario: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group full">
+                  <label>Asunto / Referencia *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoDoc.asunto || ''}
+                    onChange={(e) => setEditandoDoc({ ...editandoDoc, asunto: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Tipo de Documento</label>
+                  <select
+                    className="form-control"
+                    value={editandoDoc.tipo_documento}
+                    onChange={(e) => setEditandoDoc({ ...editandoDoc, tipo_documento: e.target.value })}
+                  >
+                    <option value="Oficio">Oficio</option>
+                    <option value="Carta">Carta</option>
+                    <option value="Informe">Informe</option>
+                    <option value="Memorandum">Memorandum</option>
+                    <option value="Resolución">Resolución</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Estado del Trámite</label>
+                  <select
+                    className="form-control"
+                    value={editandoDoc.estado || 'Respondido'}
+                    onChange={(e) => setEditandoDoc({ ...editandoDoc, estado: e.target.value })}
+                  >
+                    <option value="Respondido">Respondido / Emitido</option>
+                    <option value="Finalizado">Finalizado</option>
+                    <option value="Archivado">Archivado</option>
+                  </select>
+                </div>
+
+                <div className="form-group full">
+                  <label>Observaciones</label>
+                  <textarea
+                    className="form-control"
+                    rows="2"
+                    value={editandoDoc.observaciones || ''}
+                    onChange={(e) => setEditandoDoc({ ...editandoDoc, observaciones: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '16px 24px', borderTop: '1px solid #e2e8f0' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setEditandoDoc(null)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                >
+                  Guardar Cambios
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Emitir Nuevo Oficio Expedido */}
       {modalNuevo && (

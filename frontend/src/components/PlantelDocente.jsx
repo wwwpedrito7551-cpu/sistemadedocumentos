@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch, fetchBlobUrl } from '../api.js';
+import ModalVisor from './ModalVisor.jsx';
 
 export default function PlantelDocente({ user }) {
   const [docentes, setDocentes] = useState([]);
@@ -17,6 +18,8 @@ export default function PlantelDocente({ user }) {
   // Modales
   const [modalNuevo, setModalNuevo] = useState(false);
   const [modalSubir, setModalSubir] = useState({ abierto: false, id_docente: null, nombre: '', tipo: 'informe' });
+  const [visorDoc, setVisorDoc] = useState(null);
+  const [editandoDocente, setEditandoDocente] = useState(null);
   const [subiendo, setSubiendo] = useState(false);
   const [msg, setMsg] = useState({ tipo: '', texto: '' });
 
@@ -77,16 +80,6 @@ export default function PlantelDocente({ user }) {
     }
   }
 
-  async function handleVerArchivo(id, tipo) {
-    try {
-      const blob = await fetchBlobUrl(`/docentes/${id}/archivo/${tipo}`, true);
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
-    } catch (err) {
-      alert(err.message);
-    }
-  }
-
   async function handleDescargarArchivo(id, tipo, nombreDocente) {
     try {
       const blob = await fetchBlobUrl(`/docentes/${id}/archivo/${tipo}`, false);
@@ -98,6 +91,33 @@ export default function PlantelDocente({ user }) {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function handleEliminarDocente(id, nombre) {
+    if (!window.confirm(`¿Estás seguro de que deseas ELIMINAR al docente ${nombre} y todos sus archivos digitales del sistema? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+    try {
+      await apiFetch(`/docentes/${id}`, { method: 'DELETE' });
+      await cargarDatos();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function handleGuardarEdicion(e) {
+    e.preventDefault();
+    if (!editandoDocente) return;
+    try {
+      await apiFetch(`/docentes/${editandoDocente.id_docente}`, {
+        method: 'PUT',
+        body: JSON.stringify(editandoDocente),
+      });
+      setEditandoDocente(null);
+      await cargarDatos();
     } catch (err) {
       alert(err.message);
     }
@@ -285,13 +305,35 @@ export default function PlantelDocente({ user }) {
                     {doc.telefono ? `Tel: ${doc.telefono}` : ''}
                   </div>
                 </div>
-                <div
-                  className={`docente-status-badge ${doc.informe_presentado ? 'entregado' : 'pendiente'}`}
-                  onClick={() => handleToggleInforme(doc.id_docente, doc.informe_presentado)}
-                  title={puedeEscribir ? 'Clic para alternar estado de informe final' : ''}
-                  style={{ cursor: puedeEscribir ? 'pointer' : 'default' }}
-                >
-                  {doc.informe_presentado ? '✓ Informe Final Entregado' : '⏳ Informe Pendiente'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div
+                    className={`docente-status-badge ${doc.informe_presentado ? 'entregado' : 'pendiente'}`}
+                    onClick={() => handleToggleInforme(doc.id_docente, doc.informe_presentado)}
+                    title={puedeEscribir ? 'Clic para alternar estado de informe final' : ''}
+                    style={{ cursor: puedeEscribir ? 'pointer' : 'default' }}
+                  >
+                    {doc.informe_presentado ? '✓ Informe Final Entregado' : '⏳ Informe Pendiente'}
+                  </div>
+                  {puedeEscribir && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn-table-action btn-edit"
+                        onClick={() => setEditandoDocente({ ...doc })}
+                        title="Editar datos del docente"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-table-action btn-delete"
+                        onClick={() => handleEliminarDocente(doc.id_docente, doc.nombre_completo)}
+                        title="Eliminar este docente"
+                      >
+                        🗑️
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -311,7 +353,17 @@ export default function PlantelDocente({ user }) {
                   <div className="doc-item-actions">
                     {doc.cv_ruta ? (
                       <>
-                        <button type="button" className="btn-mini" onClick={() => handleVerArchivo(doc.id_docente, 'cv')}>
+                        <button
+                          type="button"
+                          className="btn-mini"
+                          onClick={() =>
+                            setVisorDoc({
+                              endpoint: `/docentes/${doc.id_docente}/archivo/cv`,
+                              titulo: `CV · ${doc.nombre_completo}`,
+                              nombreOriginal: `CV_${doc.nombre_completo}.pdf`,
+                            })
+                          }
+                        >
                           Ver
                         </button>
                         <button type="button" className="btn-mini" onClick={() => handleDescargarArchivo(doc.id_docente, 'cv', doc.nombre_completo)}>
@@ -350,7 +402,17 @@ export default function PlantelDocente({ user }) {
                   <div className="doc-item-actions">
                     {doc.programa_analitico_ruta ? (
                       <>
-                        <button type="button" className="btn-mini" onClick={() => handleVerArchivo(doc.id_docente, 'programa')}>
+                        <button
+                          type="button"
+                          className="btn-mini"
+                          onClick={() =>
+                            setVisorDoc({
+                              endpoint: `/docentes/${doc.id_docente}/archivo/programa`,
+                              titulo: `Programa Analítico · ${doc.nombre_completo}`,
+                              nombreOriginal: `Programa_${doc.nombre_completo}.pdf`,
+                            })
+                          }
+                        >
                           Ver
                         </button>
                         <button type="button" className="btn-mini" onClick={() => handleDescargarArchivo(doc.id_docente, 'programa', doc.nombre_completo)}>
@@ -389,7 +451,17 @@ export default function PlantelDocente({ user }) {
                   <div className="doc-item-actions">
                     {doc.informe_final_ruta ? (
                       <>
-                        <button type="button" className="btn-mini" onClick={() => handleVerArchivo(doc.id_docente, 'informe')}>
+                        <button
+                          type="button"
+                          className="btn-mini"
+                          onClick={() =>
+                            setVisorDoc({
+                              endpoint: `/docentes/${doc.id_docente}/archivo/informe`,
+                              titulo: `Informe Final Cátedra · ${doc.nombre_completo}`,
+                              nombreOriginal: `Informe_${doc.nombre_completo}.pdf`,
+                            })
+                          }
+                        >
                           Ver
                         </button>
                         <button type="button" className="btn-mini" onClick={() => handleDescargarArchivo(doc.id_docente, 'informe', doc.nombre_completo)}>
@@ -428,7 +500,17 @@ export default function PlantelDocente({ user }) {
                   <div className="doc-item-actions">
                     {doc.lista_asistencia_ruta ? (
                       <>
-                        <button type="button" className="btn-mini" onClick={() => handleVerArchivo(doc.id_docente, 'asistencia')}>
+                        <button
+                          type="button"
+                          className="btn-mini"
+                          onClick={() =>
+                            setVisorDoc({
+                              endpoint: `/docentes/${doc.id_docente}/archivo/asistencia`,
+                              titulo: `Lista de Asistencia · ${doc.nombre_completo}`,
+                              nombreOriginal: `Asistencia_${doc.nombre_completo}.pdf`,
+                            })
+                          }
+                        >
                           Ver
                         </button>
                         <button type="button" className="btn-mini" onClick={() => handleDescargarArchivo(doc.id_docente, 'asistencia', doc.nombre_completo)}>
@@ -462,6 +544,117 @@ export default function PlantelDocente({ user }) {
           ))
         )}
       </div>
+
+      {/* Modal Visor de Documento */}
+      {visorDoc && (
+        <ModalVisor
+          endpoint={visorDoc.endpoint}
+          titulo={visorDoc.titulo}
+          onClose={() => setVisorDoc(null)}
+          onDescargar={() => handleDescargarArchivo(visorDoc.endpoint.split('/')[2], visorDoc.endpoint.split('/')[4], visorDoc.titulo)}
+        />
+      )}
+
+      {/* Modal: Editar Docente */}
+      {editandoDocente && (
+        <div className="modal-backdrop" onClick={() => setEditandoDocente(null)}>
+          <div className="modal-card modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>✏️ Modificar Docente ({editandoDocente.nombre_completo})</h3>
+              <button
+                type="button"
+                className="btn-close-modal"
+                onClick={() => setEditandoDocente(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleGuardarEdicion}>
+              <div className="modal-body modal-form-grid">
+                <div className="form-group full">
+                  <label>Nombre y Apellidos del Docente *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoDocente.nombre_completo || ''}
+                    onChange={(e) => setEditandoDocente({ ...editandoDocente, nombre_completo: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Cédula de Identidad (CI)</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoDocente.ci || ''}
+                    onChange={(e) => setEditandoDocente({ ...editandoDocente, ci: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Teléfono de Contacto</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoDocente.telefono || ''}
+                    onChange={(e) => setEditandoDocente({ ...editandoDocente, telefono: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group full">
+                  <label>Correo Electrónico</label>
+                  <input
+                    type="email"
+                    className="form-control"
+                    value={editandoDocente.correo || ''}
+                    onChange={(e) => setEditandoDocente({ ...editandoDocente, correo: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group full">
+                  <label>Materias Asignadas *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoDocente.materias_asignadas || ''}
+                    onChange={(e) => setEditandoDocente({ ...editandoDocente, materias_asignadas: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group full">
+                  <label>Observaciones del Archivo</label>
+                  <textarea
+                    className="form-control"
+                    rows="2"
+                    value={editandoDocente.observaciones || ''}
+                    onChange={(e) => setEditandoDocente({ ...editandoDocente, observaciones: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '16px 24px', borderTop: '1px solid #e2e8f0' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setEditandoDocente(null)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ background: '#b91c1c' }}
+                >
+                  Guardar Cambios
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Registrar Nuevo Docente */}
       {modalNuevo && (

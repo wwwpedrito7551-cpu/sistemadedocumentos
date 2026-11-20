@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch, fetchBlobUrl } from '../api.js';
+import ModalVisor from './ModalVisor.jsx';
 
 const MODALIDADES = [
   { nombre: 'Excelencia Académica', area: 'Graduación Directa' },
@@ -27,6 +28,10 @@ export default function ActasGraduacion({ user }) {
   const [modalNuevo, setModalNuevo] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
   const [msg, setMsg] = useState({ tipo: '', texto: '' });
+
+  // Estados para Modal Visor y Edición
+  const [visorDoc, setVisorDoc] = useState(null);
+  const [editandoActa, setEditandoActa] = useState(null);
 
   const [form, setForm] = useState({
     numero_acta: '',
@@ -98,11 +103,28 @@ export default function ActasGraduacion({ user }) {
     }
   }
 
-  async function handleVerInline(id) {
+  async function handleEliminar(id, cpd, nombre) {
+    if (!window.confirm(`¿Estás seguro de que deseas ELIMINAR el acta ${cpd} de ${nombre}? Esta acción no se puede deshacer.`)) {
+      return;
+    }
     try {
-      const blob = await fetchBlobUrl(`/actas/${id}/archivo`, true);
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
+      await apiFetch(`/actas/${id}`, { method: 'DELETE' });
+      await cargarDatos();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function handleGuardarEdicion(e) {
+    e.preventDefault();
+    if (!editandoActa) return;
+    try {
+      await apiFetch(`/actas/${editandoActa.id_acta}`, {
+        method: 'PUT',
+        body: JSON.stringify(editandoActa),
+      });
+      setEditandoActa(null);
+      await cargarDatos();
     } catch (err) {
       alert(err.message);
     }
@@ -271,26 +293,28 @@ export default function ActasGraduacion({ user }) {
               <th>CALIFICACIÓN</th>
               <th>FECHA Y GESTIÓN</th>
               <th>ACTA ESCANEADA</th>
+              <th>ACCIONES</th>
             </tr>
           </thead>
           <tbody>
             {cargando ? (
               <tr>
-                <td colSpan="7" style={{ textAlign: 'center', padding: 30, color: '#64748b' }}>
+                <td colSpan="8" style={{ textAlign: 'center', padding: 30, color: '#64748b' }}>
                   Cargando actas de graduación...
                 </td>
               </tr>
             ) : actas.length === 0 ? (
               <tr>
-                <td colSpan="7" style={{ textAlign: 'center', padding: 36, color: '#64748b' }}>
+                <td colSpan="8" style={{ textAlign: 'center', padding: 36, color: '#64748b' }}>
                   No se encontraron actas de graduación con los filtros seleccionados.
                 </td>
               </tr>
             ) : (
               actas.map((acta) => {
                 const notaNum = parseFloat(acta.nota) || 0;
+                const actaId = acta.id_acta;
                 return (
-                  <tr key={acta.id_acta}>
+                  <tr key={actaId}>
                     <td>
                       <span className="badge-cpd">{acta.codigo_cpd}</span>
                       <span className="sub-text">{acta.numero_acta}</span>
@@ -329,7 +353,13 @@ export default function ActasGraduacion({ user }) {
                             type="button"
                             className="btn-file-icon"
                             title="Ver acta escaneada"
-                            onClick={() => handleVerInline(acta.id_acta)}
+                            onClick={() =>
+                              setVisorDoc({
+                                endpoint: `/actas/${actaId}/archivo`,
+                                titulo: `Acta ${acta.codigo_cpd} · ${acta.nombre_estudiante}`,
+                                nombreOriginal: `Acta_${acta.registro_estudiante}.pdf`,
+                              })
+                            }
                           >
                             👁️ Ver
                           </button>
@@ -337,7 +367,7 @@ export default function ActasGraduacion({ user }) {
                             type="button"
                             className="btn-file-icon"
                             title="Descargar PDF"
-                            onClick={() => handleDescargar(acta.id_acta, acta.registro_estudiante)}
+                            onClick={() => handleDescargar(actaId, acta.registro_estudiante)}
                           >
                             ⬇️
                           </button>
@@ -346,6 +376,30 @@ export default function ActasGraduacion({ user }) {
                         <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>Sin archivo</span>
                       )}
                     </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        {puedeEscribir && (
+                          <>
+                            <button
+                              type="button"
+                              className="btn-table-action btn-edit"
+                              onClick={() => setEditandoActa({ ...acta })}
+                              title="Editar datos de esta acta"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-table-action btn-delete"
+                              onClick={() => handleEliminar(actaId, acta.codigo_cpd, acta.nombre_estudiante)}
+                              title="Eliminar esta acta permanentemente"
+                            >
+                              🗑️
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 );
               })
@@ -353,6 +407,183 @@ export default function ActasGraduacion({ user }) {
           </tbody>
         </table>
       </div>
+
+      {/* Modal Visor de Acta */}
+      {visorDoc && (
+        <ModalVisor
+          endpoint={visorDoc.endpoint}
+          titulo={visorDoc.titulo}
+          onClose={() => setVisorDoc(null)}
+          onDescargar={() => handleDescargar(visorDoc.endpoint.split('/')[2], 'acta')}
+        />
+      )}
+
+      {/* Modal: Editar Acta de Graduación */}
+      {editandoActa && (
+        <div className="modal-backdrop" onClick={() => setEditandoActa(null)}>
+          <div className="modal-card modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>✏️ Modificar Acta de Graduación ({editandoActa.codigo_cpd})</h3>
+              <button
+                type="button"
+                className="btn-close-modal"
+                onClick={() => setEditandoActa(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleGuardarEdicion}>
+              <div className="modal-body modal-form-grid">
+                <div className="form-group">
+                  <label>Código CPD Único *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoActa.codigo_cpd || ''}
+                    onChange={(e) => setEditandoActa({ ...editandoActa, codigo_cpd: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>N° de Acta</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoActa.numero_acta || ''}
+                    onChange={(e) => setEditandoActa({ ...editandoActa, numero_acta: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Registro Universitario *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoActa.registro_estudiante || ''}
+                    onChange={(e) => setEditandoActa({ ...editandoActa, registro_estudiante: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Cédula de Identidad (CI) *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoActa.ci_estudiante || ''}
+                    onChange={(e) => setEditandoActa({ ...editandoActa, ci_estudiante: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group full">
+                  <label>Nombre Completo del Graduando *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoActa.nombre_estudiante || ''}
+                    onChange={(e) => setEditandoActa({ ...editandoActa, nombre_estudiante: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Modalidad de Titulación</label>
+                  <select
+                    className="form-control"
+                    value={editandoActa.modalidad}
+                    onChange={(e) => {
+                      const found = MODALIDADES.find((m) => m.nombre === e.target.value);
+                      setEditandoActa({
+                        ...editandoActa,
+                        modalidad: e.target.value,
+                        area_titulacion: found ? found.area : editandoActa.area_titulacion,
+                      });
+                    }}
+                  >
+                    <optgroup label="Graduación Directa">
+                      <option value="Excelencia Académica">Excelencia Académica</option>
+                      <option value="Buen Rendimiento">Buen Rendimiento</option>
+                      <option value="Buen Desempeño">Buen Desempeño</option>
+                    </optgroup>
+                    <optgroup label="GRL001 - Modalidad con Defensa">
+                      <option value="Tesis de Grado">Tesis de Grado</option>
+                      <option value="Trabajo Dirigido">Trabajo Dirigido</option>
+                      <option value="Examen de Grado">Examen de Grado</option>
+                      <option value="Proyecto de Grado">Proyecto de Grado</option>
+                      <option value="Diplomado">Diplomado</option>
+                    </optgroup>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Calificación Final (sobre 100)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="51"
+                    max="100"
+                    className="form-control"
+                    value={editandoActa.nota}
+                    onChange={(e) => setEditandoActa({ ...editandoActa, nota: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Gestión Anual</label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    value={editandoActa.gestion}
+                    onChange={(e) => setEditandoActa({ ...editandoActa, gestion: parseInt(e.target.value, 10) })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Fecha de Emisión</label>
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={editandoActa.fecha_emision?.slice(0, 10) || ''}
+                    onChange={(e) => setEditandoActa({ ...editandoActa, fecha_emision: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group full">
+                  <label>Observaciones</label>
+                  <textarea
+                    className="form-control"
+                    rows="2"
+                    value={editandoActa.observaciones || ''}
+                    onChange={(e) => setEditandoActa({ ...editandoActa, observaciones: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '16px 24px', borderTop: '1px solid #e2e8f0' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setEditandoActa(null)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ background: '#7c3aed' }}
+                >
+                  Guardar Cambios
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Registrar Nueva Acta de Graduación */}
       {modalNuevo && (

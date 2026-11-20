@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch, fetchBlobUrl } from '../api.js';
+import ModalVisor from './ModalVisor.jsx';
 
 export default function DocumentosRecibidos({ user, categorias, onVerDetalle }) {
   const [documentos, setDocumentos] = useState([]);
@@ -11,6 +12,10 @@ export default function DocumentosRecibidos({ user, categorias, onVerDetalle }) 
   const [modalNuevo, setModalNuevo] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
   const [msg, setMsg] = useState({ tipo: '', texto: '' });
+
+  // Estados para Modal Visor y Edición
+  const [visorDoc, setVisorDoc] = useState(null);
+  const [editandoDoc, setEditandoDoc] = useState(null);
 
   // Resumen de semáforo
   const [stats, setStats] = useState({
@@ -142,11 +147,28 @@ export default function DocumentosRecibidos({ user, categorias, onVerDetalle }) 
     }
   }
 
-  async function handleVerInline(id) {
+  async function handleEliminar(id, num) {
+    if (!window.confirm(`¿Estás seguro de que deseas ELIMINAR el documento ${num}? Esta acción no se puede deshacer.`)) {
+      return;
+    }
     try {
-      const blob = await fetchBlobUrl(`/documentos/${id}/archivo`, true);
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
+      await apiFetch(`/documentos/${id}`, { method: 'DELETE' });
+      await cargarDatos();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function handleGuardarEdicion(e) {
+    e.preventDefault();
+    if (!editandoDoc) return;
+    try {
+      await apiFetch(`/documentos/${editandoDoc.id_documento}`, {
+        method: 'PUT',
+        body: JSON.stringify(editandoDoc),
+      });
+      setEditandoDoc(null);
+      await cargarDatos();
     } catch (err) {
       alert(err.message);
     }
@@ -224,7 +246,7 @@ export default function DocumentosRecibidos({ user, categorias, onVerDetalle }) 
             <h2 className="module-title">Documentos Recibidos (Mesa de Entradas)</h2>
             <p className="module-desc">
               Control de correspondencia de entrada con sistema de semáforo
-              (🔴 Pendiente, 🟡 En curso, 🟢 Completado) e identificación de cartas o solicitudes con respuesta obligatoria.
+              (🔴 Pendiente, 🟡 En curso, 🟢 Completado), identificación de cartas con respuesta obligatoria y opciones de edición y eliminación.
             </p>
           </div>
         </div>
@@ -348,11 +370,13 @@ export default function DocumentosRecibidos({ user, categorias, onVerDetalle }) 
             ) : (
               documentos.map((doc) => {
                 const semaforo = doc.estado_semaforo || 'Pendiente';
+                const docId = doc.id_documento;
+                const num = doc.numero_recepcion || doc.numero_documento;
                 return (
-                  <tr key={doc.id_documento}>
+                  <tr key={docId}>
                     <td>
                       <span className="badge-recepcion">
-                        {doc.numero_recepcion || doc.numero_documento}
+                        {num}
                       </span>
                       <span className="sub-text">{doc.tipo_documento}</span>
                     </td>
@@ -361,7 +385,7 @@ export default function DocumentosRecibidos({ user, categorias, onVerDetalle }) 
                         <select
                           className={`semaforo-select ${semaforo.toLowerCase().replace(' ', '-')}`}
                           value={semaforo}
-                          onChange={(e) => handleCambiarSemaforo(doc.id_documento, e.target.value)}
+                          onChange={(e) => handleCambiarSemaforo(docId, e.target.value)}
                         >
                           <option value="Pendiente">🔴 Pendiente</option>
                           <option value="En curso">🟡 En curso</option>
@@ -402,8 +426,14 @@ export default function DocumentosRecibidos({ user, categorias, onVerDetalle }) 
                           <button
                             type="button"
                             className="btn-file-icon"
-                            title="Previsualizar archivo"
-                            onClick={() => handleVerInline(doc.id_documento)}
+                            title="Previsualizar archivo con visor institucional"
+                            onClick={() =>
+                              setVisorDoc({
+                                endpoint: `/documentos/${docId}/archivo`,
+                                titulo: `${num} · ${doc.asunto}`,
+                                nombreOriginal: `${num}.pdf`,
+                              })
+                            }
                           >
                             👁️ Ver
                           </button>
@@ -411,7 +441,7 @@ export default function DocumentosRecibidos({ user, categorias, onVerDetalle }) 
                             type="button"
                             className="btn-file-icon"
                             title="Descargar copia"
-                            onClick={() => handleDescargar(doc.id_documento, doc.numero_recepcion)}
+                            onClick={() => handleDescargar(docId, num)}
                           >
                             ⬇️
                           </button>
@@ -421,13 +451,35 @@ export default function DocumentosRecibidos({ user, categorias, onVerDetalle }) 
                       )}
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="btn-table-action"
-                        onClick={() => onVerDetalle && onVerDetalle(doc.id_documento)}
-                      >
-                        Detalle
-                      </button>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          className="btn-table-action"
+                          onClick={() => onVerDetalle && onVerDetalle(docId)}
+                        >
+                          Detalle
+                        </button>
+                        {puedeEscribir && (
+                          <>
+                            <button
+                              type="button"
+                              className="btn-table-action btn-edit"
+                              onClick={() => setEditandoDoc({ ...doc })}
+                              title="Editar datos de este documento"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-table-action btn-delete"
+                              onClick={() => handleEliminar(docId, num)}
+                              title="Eliminar este documento permanentemente"
+                            >
+                              🗑️
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -436,6 +488,171 @@ export default function DocumentosRecibidos({ user, categorias, onVerDetalle }) 
           </tbody>
         </table>
       </div>
+
+      {/* Modal Visor de Documento */}
+      {visorDoc && (
+        <ModalVisor
+          endpoint={visorDoc.endpoint}
+          titulo={visorDoc.titulo}
+          onClose={() => setVisorDoc(null)}
+          onDescargar={() => handleDescargar(visorDoc.endpoint.split('/')[2], visorDoc.nombreOriginal)}
+        />
+      )}
+
+      {/* Modal: Editar Documento */}
+      {editandoDoc && (
+        <div className="modal-backdrop" onClick={() => setEditandoDoc(null)}>
+          <div className="modal-card modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>✏️ Modificar Documento ({editandoDoc.numero_recepcion || editandoDoc.numero_documento})</h3>
+              <button
+                type="button"
+                className="btn-close-modal"
+                onClick={() => setEditandoDoc(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleGuardarEdicion}>
+              <div className="modal-body modal-form-grid">
+                <div className="form-group">
+                  <label>Tipo de Documento</label>
+                  <select
+                    className="form-control"
+                    value={editandoDoc.tipo_documento}
+                    onChange={(e) => setEditandoDoc({ ...editandoDoc, tipo_documento: e.target.value })}
+                  >
+                    <option value="Carta">Carta</option>
+                    <option value="Solicitud">Solicitud</option>
+                    <option value="Informe">Informe</option>
+                    <option value="Memorandum">Memorandum</option>
+                    <option value="Circular">Circular</option>
+                    <option value="Otro">Otro</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Estado de Semáforo</label>
+                  <select
+                    className="form-control"
+                    value={editandoDoc.estado_semaforo || 'Pendiente'}
+                    onChange={(e) => setEditandoDoc({ ...editandoDoc, estado_semaforo: e.target.value })}
+                  >
+                    <option value="Pendiente">🔴 Pendiente</option>
+                    <option value="En curso">🟡 En curso</option>
+                    <option value="Completado">🟢 Completado</option>
+                  </select>
+                </div>
+
+                <div className="form-group full">
+                  <label>Remitente *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoDoc.remitente || ''}
+                    onChange={(e) => setEditandoDoc({ ...editandoDoc, remitente: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group full">
+                  <label>Asunto o Título del Documento *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoDoc.asunto || ''}
+                    onChange={(e) => setEditandoDoc({ ...editandoDoc, asunto: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Destinatario Interno</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoDoc.destinatario || ''}
+                    onChange={(e) => setEditandoDoc({ ...editandoDoc, destinatario: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Responsable de Recepción</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editandoDoc.responsable_recepcion || ''}
+                    onChange={(e) => setEditandoDoc({ ...editandoDoc, responsable_recepcion: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Medio de Recepción</label>
+                  <select
+                    className="form-control"
+                    value={editandoDoc.medio_recepcion || 'Presencial'}
+                    onChange={(e) => setEditandoDoc({ ...editandoDoc, medio_recepcion: e.target.value })}
+                  >
+                    <option value="Presencial">Presencial</option>
+                    <option value="Digital">Digital</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Cantidad de Anexos</label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="form-control"
+                    value={editandoDoc.cantidad_anexos ?? 0}
+                    onChange={(e) => setEditandoDoc({ ...editandoDoc, cantidad_anexos: parseInt(e.target.value, 10) || 0 })}
+                  />
+                </div>
+
+                <div className="form-group full" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <input
+                    type="checkbox"
+                    id="chkEditResp"
+                    style={{ width: 18, height: 18, cursor: 'pointer' }}
+                    checked={Boolean(editandoDoc.requiere_respuesta)}
+                    onChange={(e) => setEditandoDoc({ ...editandoDoc, requiere_respuesta: e.target.checked })}
+                  />
+                  <label htmlFor="chkEditResp" style={{ cursor: 'pointer', fontWeight: 700, margin: 0 }}>
+                    ¿Requiere Respuesta Obligatoria?
+                  </label>
+                </div>
+
+                <div className="form-group full">
+                  <label>Observaciones</label>
+                  <textarea
+                    className="form-control"
+                    rows="2"
+                    value={editandoDoc.observaciones || ''}
+                    onChange={(e) => setEditandoDoc({ ...editandoDoc, observaciones: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '16px 24px', borderTop: '1px solid #e2e8f0' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setEditandoDoc(null)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                >
+                  Guardar Cambios
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Registrar Documento Recibido (9 Campos) */}
       {modalNuevo && (

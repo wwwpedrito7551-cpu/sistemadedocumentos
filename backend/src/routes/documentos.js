@@ -309,4 +309,87 @@ router.patch('/:id/semaforo', ESCRITURA, asyncH(async (req, res) => {
   res.json(rows[0]);
 }));
 
+// ---------- Editar documento ----------
+router.put('/:id', ESCRITURA, asyncH(async (req, res) => {
+  const {
+    remitente,
+    destinatario,
+    asunto,
+    tipo_documento,
+    id_categoria,
+    fecha_vencimiento,
+    observaciones,
+    responsable_recepcion,
+    medio_recepcion,
+    cantidad_anexos,
+    requiere_respuesta,
+    estado_semaforo,
+    estado,
+  } = req.body;
+
+  const { rows: actual } = await query('SELECT * FROM documentos WHERE id_documento = $1', [req.params.id]);
+  if (!actual.length) throw new HttpError(404, 'Documento no encontrado');
+
+  const reqResp = requiere_respuesta === true || requiere_respuesta === 'true' || requiere_respuesta === '1';
+
+  const { rows } = await query(
+    `UPDATE documentos
+     SET remitente = COALESCE($1, remitente),
+         destinatario = COALESCE($2, destinatario),
+         asunto = COALESCE($3, asunto),
+         tipo_documento = COALESCE($4, tipo_documento),
+         id_categoria = COALESCE($5, id_categoria),
+         fecha_vencimiento = $6,
+         observaciones = $7,
+         responsable_recepcion = COALESCE($8, responsable_recepcion),
+         medio_recepcion = COALESCE($9, medio_recepcion),
+         cantidad_anexos = COALESCE($10, cantidad_anexos),
+         requiere_respuesta = $11,
+         estado_semaforo = COALESCE($12, estado_semaforo),
+         estado = COALESCE($13, estado)
+     WHERE id_documento = $14
+     RETURNING *`,
+    [
+      remitente?.trim() || null,
+      destinatario?.trim() || null,
+      asunto?.trim() || null,
+      tipo_documento || null,
+      id_categoria ? parseInt(id_categoria, 10) : null,
+      fecha_vencimiento || null,
+      observaciones || null,
+      responsable_recepcion?.trim() || null,
+      medio_recepcion || null,
+      cantidad_anexos !== undefined ? parseInt(cantidad_anexos, 10) : null,
+      reqResp,
+      estado_semaforo || null,
+      estado || null,
+      req.params.id,
+    ],
+  );
+
+  res.json(rows[0]);
+}));
+
+// ---------- Eliminar documento ----------
+router.delete('/:id', ESCRITURA, asyncH(async (req, res) => {
+  const { rows } = await query(
+    'SELECT ruta_archivo, numero_documento, numero_recepcion FROM documentos WHERE id_documento = $1',
+    [req.params.id],
+  );
+  if (!rows.length) throw new HttpError(404, 'Documento no encontrado');
+
+  const doc = rows[0];
+  if (doc.ruta_archivo) {
+    try {
+      const full = rutaSegura(doc.ruta_archivo);
+      await fs.rm(full, { force: true });
+    } catch {
+      // Ignorar si el archivo físico ya no existía
+    }
+  }
+
+  await query('DELETE FROM documentos WHERE id_documento = $1', [req.params.id]);
+  res.json({ ok: true, mensaje: `Documento ${doc.numero_recepcion || doc.numero_documento} eliminado exitosamente` });
+}));
+
 export default router;

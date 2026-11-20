@@ -1595,3 +1595,49 @@
   font-style: italic;
 }
 
+/* Botones de acción en tablas (Editar, Eliminar, Detalle) */
+.btn-table-action {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #1e293b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.btn-table-action:hover {
+  background: #e2e8f0;
+}
+
+.btn-table-action.btn-edit {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.btn-table-action.btn-edit:hover {
+  background: #dbeafe;
+}
+
+.btn-table-action.btn-delete {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+.btn-table-action.btn-delete:hover {
+  background: #fee2e2;
+}
+
+.modal-xl {
+  max-width: 980px;
+  width: 95vw;
+}
+

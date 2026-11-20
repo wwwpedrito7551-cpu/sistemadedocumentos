@@ -160,4 +160,72 @@ router.get('/:id/archivo/:tipo', asyncH(async (req, res) => {
   res.download(full, nombre);
 }));
 
+// Modificar datos del docente
+router.put('/:id', ESCRITURA, asyncH(async (req, res) => {
+  const {
+    nombre_completo,
+    ci,
+    correo,
+    telefono,
+    materias_asignadas,
+    gestion,
+    semestre,
+    informe_presentado,
+    observaciones,
+  } = req.body;
+
+  const { rows } = await query(
+    `UPDATE plantel_docente
+     SET nombre_completo = COALESCE($1, nombre_completo),
+         ci = $2,
+         correo = $3,
+         telefono = $4,
+         materias_asignadas = COALESCE($5, materias_asignadas),
+         gestion = COALESCE($6, gestion),
+         semestre = COALESCE($7, semestre),
+         informe_presentado = COALESCE($8, informe_presentado),
+         observaciones = $9,
+         fecha_actualizacion = CURRENT_TIMESTAMP
+     WHERE id_docente = $10
+     RETURNING *`,
+    [
+      nombre_completo?.trim() || null,
+      ci?.trim() || null,
+      correo?.trim() || null,
+      telefono?.trim() || null,
+      materias_asignadas?.trim() || null,
+      gestion ? parseInt(gestion, 10) : null,
+      semestre || null,
+      informe_presentado !== undefined ? Boolean(informe_presentado) : null,
+      observaciones || null,
+      req.params.id,
+    ],
+  );
+
+  if (!rows.length) throw new HttpError(404, 'Docente no encontrado');
+  res.json(rows[0]);
+}));
+
+// Eliminar docente y sus archivos del file
+router.delete('/:id', ESCRITURA, asyncH(async (req, res) => {
+  const { rows } = await query('SELECT * FROM plantel_docente WHERE id_docente = $1', [req.params.id]);
+  if (!rows.length) throw new HttpError(404, 'Docente no encontrado');
+
+  const doc = rows[0];
+  const archivos = [doc.cv_ruta, doc.programa_analitico_ruta, doc.informe_final_ruta, doc.lista_asistencia_ruta];
+  for (const r of archivos) {
+    if (r) {
+      try {
+        const full = rutaSegura(r);
+        await fs.rm(full, { force: true });
+      } catch {
+        // Ignorar
+      }
+    }
+  }
+
+  await query('DELETE FROM plantel_docente WHERE id_docente = $1', [req.params.id]);
+  res.json({ ok: true, mensaje: `Docente ${doc.nombre_completo} eliminado exitosamente` });
+}));
+
 export default router;
