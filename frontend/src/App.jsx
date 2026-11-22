@@ -1017,7 +1017,7 @@ export default function App() {
                                 <button
                                   type="button"
                                   className="btn-action-ver"
-                                  onClick={() => setVisorDoc({ id: d.id_documento, titulo: `${d.numero_documento} - ${d.asunto}` })}
+                                  onClick={() => setVisorDoc({ id: d.id_documento, doc: d, titulo: `${d.numero_documento} - ${d.asunto}` })}
                                   title="Ver archivo digitalizado (PDF)"
                                 >
                                   👁️ Ver
@@ -1594,6 +1594,7 @@ export default function App() {
       {visorDoc && (
         <ModalVisor
           endpoint={`/documentos/${visorDoc.id}/archivo`}
+          doc={visorDoc.doc}
           titulo={visorDoc.titulo}
           onClose={() => setVisorDoc(null)}
           onDescargar={() => handleDescargarDoc(visorDoc.id, `${visorDoc.titulo}.pdf`)}
@@ -1629,7 +1630,7 @@ export default function App() {
                   type="button"
                   className="btn-primary"
                   onClick={() => {
-                    setVisorDoc({ id: detalleDoc.id_documento, titulo: `${detalleDoc.numero_documento} - ${detalleDoc.asunto}` });
+                    setVisorDoc({ id: detalleDoc.id_documento, doc: detalleDoc, titulo: `${detalleDoc.numero_documento} - ${detalleDoc.asunto}` });
                   }}
                 >
                   👁️ Abrir en Visor de Documento

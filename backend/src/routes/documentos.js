@@ -145,9 +145,30 @@ router.post('/', ESCRITURA, upload.single('archivo'), asyncH(async (req, res) =>
 
       const ext = path.extname(file.originalname).toLowerCase();
       destino = path.join(dir, `${numero_documento}${ext}`);
-      await fs.copyFile(file.path, destino);
 
-      const ruta = path.relative(STORAGE_ROOT, destino);
+      // Si el archivo subido es un PDF vacío o corrupto (< 250 bytes o sin %%EOF),
+      // lo convertimos inmediatamente a un PDF institucional oficial completo
+      let fileBuf = await fs.readFile(file.path);
+      if (ext === '.pdf') {
+        const str = fileBuf.toString('utf-8');
+        if (fileBuf.length < 250 || !str.startsWith('%PDF') || !str.includes('%%EOF')) {
+          fileBuf = generarPdfInstitucional({
+            numero_documento,
+            numero_recepcion,
+            fecha_recepcion: rows[0].fecha_recepcion,
+            fecha_vencimiento,
+            remitente,
+            destinatario,
+            asunto,
+            tipo_documento,
+            categoria: cat.rows[0].nombre || 'Correspondencia',
+            estado: estadoValido,
+          });
+        }
+      }
+      await fs.writeFile(destino, fileBuf);
+
+      const ruta = path.relative(STORAGE_ROOT, destino).replace(/\\/g, '/');
       await c.query(
         'UPDATE documentos SET ruta_archivo = $1, nombre_original = $2 WHERE id_documento = $3',
         [ruta, file.originalname, id_documento],
@@ -269,16 +290,29 @@ router.get('/:id/archivo', asyncH(async (req, res) => {
   if (doc.ruta_archivo) {
     try {
       fullPath = rutaSegura(doc.ruta_archivo);
-      await fs.access(fullPath);
-      archivoExiste = true;
+      const stat = await fs.stat(fullPath);
+      // Si el archivo mide al menos 200 bytes, verificamos si es PDF
+      if (stat.size >= 200) {
+        const ext = path.extname(fullPath).toLowerCase();
+        if (ext === '.pdf') {
+          const buf = await fs.readFile(fullPath);
+          const str = buf.toString('utf-8');
+          if (str.startsWith('%PDF') && str.includes('%%EOF')) {
+            archivoExiste = true;
+          }
+        } else {
+          archivoExiste = true;
+        }
+      }
     } catch {
       archivoExiste = false;
     }
   }
 
-  // Si no tiene archivo físico en disco, generamos el documento PDF oficial institucional
+  // Si no tiene archivo físico en disco o el archivo estaba dañado/incompleto,
+  // generamos el documento PDF oficial institucional
   if (!archivoExiste) {
-    const carpetaRel = doc.carpeta || 'archivos/cartas';
+    const carpetaRel = doc.carpeta || 'archivos/informes';
     const dirAbs = rutaSegura(carpetaRel);
     await fs.mkdir(dirAbs, { recursive: true });
     const nombrePdf = `${doc.numero_documento || `DOC-${doc.id_documento}`}.pdf`;
@@ -306,11 +340,22 @@ router.get('/:id/archivo', asyncH(async (req, res) => {
     );
   }
 
+  const extFinal = path.extname(fullPath).toLowerCase();
   if (req.query.inline === '1' || req.query.inline === 'true') {
-    res.setHeader('Content-Type', 'application/pdf');
+    if (extFinal === '.pdf') {
+      res.setHeader('Content-Type', 'application/pdf');
+    } else if (extFinal === '.docx') {
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    } else if (extFinal === '.doc') {
+      res.setHeader('Content-Type', 'application/msword');
+    } else if (extFinal === '.png') {
+      res.setHeader('Content-Type', 'image/png');
+    } else if (extFinal === '.jpg' || extFinal === '.jpeg') {
+      res.setHeader('Content-Type', 'image/jpeg');
+    }
     return res.sendFile(fullPath);
   }
-  res.download(fullPath, doc.nombre_original || `${doc.numero_documento}.pdf`);
+  res.download(fullPath, doc.nombre_original || `${doc.numero_documento}${extFinal}`);
 }));
 
 // ---------- Cambiar estado ----------
