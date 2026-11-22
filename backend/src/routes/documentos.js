@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Router } from 'express';
 import { query, tx } from '../db.js';
-import { asyncH, HttpError, sha256 } from '../utils.js';
+import { asyncH, HttpError, sha256, generarPdfInstitucional } from '../utils.js';
 import { requireRol } from '../middleware/auth.js';
 import { upload, STORAGE_ROOT } from '../middleware/upload.js';
 
@@ -253,15 +253,64 @@ router.get('/:id', asyncH(async (req, res) => {
 // ---------- Descargar o visualizar el archivo digitalizado ----------
 router.get('/:id/archivo', asyncH(async (req, res) => {
   const { rows } = await query(
-    'SELECT ruta_archivo, nombre_original FROM documentos WHERE id_documento = $1',
+    `SELECT d.id_documento, d.numero_documento, d.numero_recepcion, d.asunto, d.remitente,
+            d.destinatario, d.tipo_documento, d.fecha_recepcion, d.fecha_vencimiento,
+            d.estado, d.ruta_archivo, d.nombre_original, c.nombre AS categoria, c.carpeta
+     FROM documentos d
+     LEFT JOIN categorias c USING (id_categoria)
+     WHERE d.id_documento = $1`,
     [req.params.id],
   );
-  if (!rows[0]?.ruta_archivo) throw new HttpError(404, 'El documento no tiene archivo');
-  const fullPath = rutaSegura(rows[0].ruta_archivo);
+  if (!rows[0]) throw new HttpError(404, 'Documento no encontrado');
+  const doc = rows[0];
+
+  let archivoExiste = false;
+  let fullPath = null;
+  if (doc.ruta_archivo) {
+    try {
+      fullPath = rutaSegura(doc.ruta_archivo);
+      await fs.access(fullPath);
+      archivoExiste = true;
+    } catch {
+      archivoExiste = false;
+    }
+  }
+
+  // Si no tiene archivo físico en disco, generamos el documento PDF oficial institucional
+  if (!archivoExiste) {
+    const carpetaRel = doc.carpeta || 'archivos/cartas';
+    const dirAbs = rutaSegura(carpetaRel);
+    await fs.mkdir(dirAbs, { recursive: true });
+    const nombrePdf = `${doc.numero_documento || `DOC-${doc.id_documento}`}.pdf`;
+    fullPath = path.join(dirAbs, nombrePdf);
+    const rutaRelativa = path.relative(STORAGE_ROOT, fullPath).replace(/\\/g, '/');
+
+    const pdfBuffer = generarPdfInstitucional({
+      titulo: `${doc.tipo_documento || 'DOCUMENTO'}: ${doc.numero_documento}`,
+      numero_documento: doc.numero_documento,
+      numero_recepcion: doc.numero_recepcion,
+      fecha_recepcion: doc.fecha_recepcion,
+      fecha_vencimiento: doc.fecha_vencimiento,
+      remitente: doc.remitente,
+      destinatario: doc.destinatario,
+      asunto: doc.asunto,
+      categoria: doc.categoria,
+      estado: doc.estado,
+      tipo_documento: doc.tipo_documento,
+    });
+
+    await fs.writeFile(fullPath, pdfBuffer);
+    await query(
+      'UPDATE documentos SET ruta_archivo = $1, nombre_original = $2 WHERE id_documento = $3',
+      [rutaRelativa, nombrePdf, doc.id_documento],
+    );
+  }
+
   if (req.query.inline === '1' || req.query.inline === 'true') {
+    res.setHeader('Content-Type', 'application/pdf');
     return res.sendFile(fullPath);
   }
-  res.download(fullPath, rows[0].nombre_original);
+  res.download(fullPath, doc.nombre_original || `${doc.numero_documento}.pdf`);
 }));
 
 // ---------- Cambiar estado ----------
