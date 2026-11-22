@@ -25,7 +25,7 @@ function calcularEstadoPlazo(fechaVencimiento, estadoDoc) {
     return { clase: 'en-plazo', texto: 'Atendido', icono: '✓' };
   }
   if (!fechaVencimiento) {
-    return { clase: 'en-plazo', texto: 'Sin límite', icono: '●' };
+    return { clase: 'en-plazo', texto: 'Vigente', icono: '●' };
   }
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
@@ -43,7 +43,6 @@ function calcularEstadoPlazo(fechaVencimiento, estadoDoc) {
 export default function App() {
   const [user, setUser] = useState(() => getStoredUser());
   const [vistaActiva, setVistaActiva] = useState('bandeja');
-  const [menuColapsado, setMenuColapsado] = useState(false);
 
   // Estados de métricas y datos
   const [resumen, setResumen] = useState({
@@ -57,6 +56,7 @@ export default function App() {
   const [categorias, setCategorias] = useState([]);
   const [documentos, setDocumentos] = useState([]);
   const [notificaciones, setNotificaciones] = useState([]);
+  const [usuariosList, setUsuariosList] = useState([]);
   const [cargando, setCargando] = useState(false);
 
   // Filtros de Bandeja
@@ -64,17 +64,12 @@ export default function App() {
   const [filtroCategoria, setFiltroCategoria] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('');
 
-  // Sub-filtro para la Vista de Control de Estados ('Pendiente' | 'Respondido' | 'Archivado')
-  const [tabEstadoControl, setTabEstadoControl] = useState('Pendiente');
-
-  // Filtro de Alertas ('todas' | 'vencidos' | 'por_vencer')
-  const [filtroAlertas, setFiltroAlertas] = useState('todas');
-
   // Modales
   const [visorDoc, setVisorDoc] = useState(null); // { id, titulo }
   const [detalleDoc, setDetalleDoc] = useState(null);
   const [editandoDoc, setEditandoDoc] = useState(null);
   const [editandoCategoria, setEditandoCategoria] = useState(null);
+  const [editandoUsuario, setEditandoUsuario] = useState(null);
 
   // Login
   const [loginUser, setLoginUser] = useState('');
@@ -105,6 +100,15 @@ export default function App() {
   const [nuevaCat, setNuevaCat] = useState({ nombre: '', descripcion: '' });
   const [catMsg, setCatMsg] = useState('');
 
+  // Formulario Nuevo Usuario
+  const [nuevoUsuario, setNuevoUsuario] = useState({
+    nombre: '',
+    usuario: '',
+    contrasena: '',
+    rol: 'Secretaria',
+  });
+  const [userMsg, setUserMsg] = useState({ tipo: '', texto: '' });
+
   const puedeEscribir = user?.rol === 'Administrador' || user?.rol === 'Secretaria';
   const esAdmin = user?.rol === 'Administrador';
 
@@ -131,12 +135,15 @@ export default function App() {
       setDocumentos(resDocs.data || []);
       setNotificaciones(resNotifs || []);
 
-      // Si no hay categoría asignada en el formulario de recepción, asignar la primera
       if (resCats?.length > 0 && !recepcionForm.id_categoria) {
         setRecepcionForm((prev) => ({
           ...prev,
           id_categoria: String(resCats[0].id_categoria),
         }));
+      }
+
+      if (user.rol === 'Administrador') {
+        apiFetch('/auth/usuarios').then(setUsuariosList).catch(() => {});
       }
     } catch (err) {
       console.error('Error cargando datos:', err);
@@ -151,7 +158,6 @@ export default function App() {
     }
   }, [user, cargarTodo]);
 
-  // Cargar número correlativo de recepción al abrir el formulario
   const refrescarProximoRecepcion = useCallback(async () => {
     try {
       const datos = await apiFetch('/documentos/proximo-recepcion');
@@ -162,7 +168,7 @@ export default function App() {
         hora_recepcion: datos.hora_actual || new Date().toTimeString().slice(0, 8),
       }));
     } catch (err) {
-      console.warn('No se pudo obtener el próximo número de recepción:', err);
+      console.warn(err);
     }
   }, []);
 
@@ -197,7 +203,7 @@ export default function App() {
     setUser(null);
   }
 
-  // Auto-seleccionar categoría al cambiar el tipo de documento
+  // Auto-seleccionar categoría al cambiar tipo de documento
   function handleCambioTipoDocumento(nuevoTipo) {
     let catCoincidente = null;
     const tipoLower = nuevoTipo.toLowerCase();
@@ -234,7 +240,7 @@ export default function App() {
       fd.append('destinatario', recepcionForm.destinatario);
       fd.append('asunto', recepcionForm.asunto);
       fd.append('id_categoria', recepcionForm.id_categoria);
-      fd.append('estado', 'Pendiente'); // Estado unificado inicial
+      fd.append('estado', 'Pendiente');
       if (recepcionForm.fecha_vencimiento) {
         fd.append('fecha_vencimiento', recepcionForm.fecha_vencimiento);
       }
@@ -252,7 +258,6 @@ export default function App() {
         texto: `Documento registrado con éxito: ${creado.numero_documento} (${creado.numero_recepcion})`,
       });
 
-      // Limpiar formulario y cargar próximo número
       setRecepcionForm((prev) => ({
         ...prev,
         remitente: '',
@@ -272,7 +277,7 @@ export default function App() {
     }
   }
 
-  // Cambiar estado unificado (Pendiente -> Respondido -> Archivado)
+  // Cambiar estado (Pendiente -> Respondido -> Archivado)
   async function handleCambiarEstado(idDoc, nuevoEstado) {
     try {
       await apiFetch(`/documentos/${idDoc}/estado`, {
@@ -365,6 +370,57 @@ export default function App() {
     }
   }
 
+  // Crear Usuario
+  async function handleCrearUsuario(e) {
+    e.preventDefault();
+    setUserMsg({ tipo: '', texto: '' });
+    try {
+      await apiFetch('/auth/usuarios', {
+        method: 'POST',
+        body: JSON.stringify(nuevoUsuario),
+      });
+      setNuevoUsuario({ nombre: '', usuario: '', contrasena: '', rol: 'Secretaria' });
+      setUserMsg({ tipo: 'ok', texto: 'Usuario registrado exitosamente.' });
+      const uList = await apiFetch('/auth/usuarios');
+      setUsuariosList(uList);
+    } catch (err) {
+      setUserMsg({ tipo: 'error', texto: err.message });
+    }
+  }
+
+  // Eliminar Usuario
+  async function handleEliminarUsuario(id, nombre) {
+    if (id === user.id) {
+      alert('No puedes eliminar tu propia cuenta en uso.');
+      return;
+    }
+    if (!window.confirm(`¿Estás seguro de eliminar al usuario "${nombre}"?`)) return;
+    try {
+      await apiFetch(`/auth/usuarios/${id}`, { method: 'DELETE' });
+      const uList = await apiFetch('/auth/usuarios');
+      setUsuariosList(uList);
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  // Guardar edición usuario
+  async function handleGuardarEdicionUsuario(e) {
+    e.preventDefault();
+    if (!editandoUsuario) return;
+    try {
+      await apiFetch(`/auth/usuarios/${editandoUsuario.id_usuario}`, {
+        method: 'PUT',
+        body: JSON.stringify(editandoUsuario),
+      });
+      setEditandoUsuario(null);
+      const uList = await apiFetch('/auth/usuarios');
+      setUsuariosList(uList);
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
   // Forzar chequeo de alertas
   async function handleGenerarAlertas() {
     try {
@@ -383,7 +439,7 @@ export default function App() {
       await apiFetch('/notificaciones', { method: 'DELETE' });
       await cargarTodo();
     } catch (err) {
-      alert(`Error: ${err.message}`);
+      alert(err.message);
     }
   }
 
@@ -403,9 +459,9 @@ export default function App() {
       <div className="login-screen">
         <div className="login-card">
           <div className="login-header">
-            <div className="login-header-emblem">🏛️</div>
-            <h2>Universidad Autónoma Gabriel René Moreno</h2>
-            <p>Sistema Automatizado de Archivos y Control Documental</p>
+            <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🏛️</div>
+            <h2>UNIDAD DE ARCHIVO Y CORRESPONDENCIA</h2>
+            <p>Sistema Automatizado de Archivos · S.G.D.</p>
           </div>
           <form className="login-body" onSubmit={handleLogin}>
             {loginError && <div className="alert-error">⚠️ {loginError}</div>}
@@ -458,261 +514,301 @@ export default function App() {
     );
   }
 
-  // Filtrado de documentos para la vista de Control de Estados
-  const documentosPorEstado = documentos.filter((d) => d.estado === tabEstadoControl);
-
-  // Filtrado de notificaciones para la vista de Alertas y Avisos
-  const notificacionesFiltradas = notificaciones.filter((n) => {
-    if (filtroAlertas === 'vencidos') return n.mensaje.includes('VENCIDO');
-    if (filtroAlertas === 'por_vencer') return n.mensaje.includes('vence el');
-    return true;
-  });
-
   return (
     <div className="app-shell">
-      {/* ==================== ENCABEZADO SUPERIOR UAGRM ==================== */}
+      {/* ==================== ENCABEZADO SUPERIOR (EXACTO DE LA FOTO) ==================== */}
       <header className="top-institutional-bar">
-        <div className="top-bar-brand">
-          <div className="uagrm-emblem">🏛️</div>
-          <div className="brand-titles">
-            <span className="brand-main">Universidad Autónoma Gabriel René Moreno</span>
-            <span className="brand-sub">Sistema Automatizado de Archivos · Gestión y Control Documental</span>
+        <div className="top-bar-left">
+          <div className="top-header-title">
+            <span className="header-icon">🏛️</span>
+            <span>UNIDAD DE ARCHIVO Y CORRESPONDENCIA</span>
           </div>
         </div>
 
-        <div className="top-bar-actions">
-          {puedeEscribir && (
-            <button
-              type="button"
-              className="btn-header-cta"
-              onClick={() => setVistaActiva('recepcion')}
-            >
-              <span>＋</span>
-              <span>Digitalizar Documento</span>
-            </button>
-          )}
-
-          <div className="user-badge-header">
-            <span>👤 {user.nombre}</span>
-            <span className="user-role-pill">{user.rol}</span>
+        <div className="top-bar-right">
+          <div className="badge-system-pill">
+            <span>🛡️</span>
+            <span>Sistema Automatizado de Archivos</span>
+          </div>
+          <div className="sub-header-label">
+            S.G.D. · GESTIÓN DOCUMENTAL
           </div>
         </div>
       </header>
 
-      {/* ==================== REGIÓN PRINCIPAL (SIDEBAR + CONTENIDO) ==================== */}
+      {/* ==================== CUERPO PRINCIPAL ==================== */}
       <div className="main-region">
-        {/* ==================== SIDEBAR IZQUIERDO ==================== */}
-        <aside className={`classic-sidebar ${menuColapsado ? 'collapsed' : ''}`}>
-          {/* Botón superior para Ocultar / Mostrar menú */}
-          <button
-            type="button"
-            className="btn-toggle-menu"
-            onClick={() => setMenuColapsado(!menuColapsado)}
-            title={menuColapsado ? 'Mostrar menú lateral' : 'Ocultar menú lateral'}
-          >
-            <span>{menuColapsado ? '▶' : '◀'}</span>
-            {!menuColapsado && <span>Ocultar menú</span>}
-          </button>
+        {/* ==================== SIDEBAR IZQUIERDO (EXACTO DE LA FOTO) ==================== */}
+        <aside className="classic-sidebar">
+          <div className="sidebar-top-section">
+            <div className="sidebar-main-heading">
+              Consultas y<br />Módulos
+            </div>
+          </div>
 
-          {!menuColapsado && <div className="sidebar-section-title">GESTIÓN DOCUMENTAL</div>}
-
-          {/* Menú con los bloques rectangulares celestes (#DCE8F5) */}
           <nav className="sidebar-menu-list">
             {/* 1. Bandeja General */}
             <button
               type="button"
               className={`sidebar-btn ${vistaActiva === 'bandeja' ? 'active' : ''}`}
-              onClick={() => setVistaActiva('bandeja')}
-              title="Bandeja General"
+              onClick={() => {
+                setFiltroEstado('');
+                setFiltroCategoria('');
+                setVistaActiva('bandeja');
+              }}
             >
-              <span className="sidebar-icon">📥</span>
-              <span className="btn-label">Bandeja General</span>
+              <span>Bandeja General</span>
+              <span className="sidebar-badge-circle">{documentos.length}</span>
             </button>
 
-            {/* 2. Recepción y Digitalización */}
+            {/* 2. + Registrar Documento */}
             <button
               type="button"
               className={`sidebar-btn ${vistaActiva === 'recepcion' ? 'active' : ''}`}
               onClick={() => setVistaActiva('recepcion')}
-              title="Recepción y Digitalización"
             >
-              <span className="sidebar-icon">📄</span>
-              <span className="btn-label">Recepción y Digitalización</span>
+              <span>+ Registrar Documento</span>
             </button>
 
-            {/* 3. Categorías y Carpetas */}
+            {/* 3. Pendientes */}
+            <button
+              type="button"
+              className={`sidebar-btn ${vistaActiva === 'bandeja' && filtroEstado === 'Pendiente' ? 'active' : ''}`}
+              onClick={() => {
+                setFiltroEstado('Pendiente');
+                setVistaActiva('bandeja');
+              }}
+            >
+              <span>Pendientes</span>
+              <span className="sidebar-badge-circle">{resumen.pendientes || 0}</span>
+            </button>
+
+            {/* 4. Respondidos */}
+            <button
+              type="button"
+              className={`sidebar-btn ${vistaActiva === 'bandeja' && filtroEstado === 'Respondido' ? 'active' : ''}`}
+              onClick={() => {
+                setFiltroEstado('Respondido');
+                setVistaActiva('bandeja');
+              }}
+            >
+              <span>Respondidos</span>
+              <span className="sidebar-badge-circle">{resumen.respondidos || 0}</span>
+            </button>
+
+            {/* 5. Histórico / Archivo */}
+            <button
+              type="button"
+              className={`sidebar-btn ${vistaActiva === 'bandeja' && filtroEstado === 'Archivado' ? 'active' : ''}`}
+              onClick={() => {
+                setFiltroEstado('Archivado');
+                setVistaActiva('bandeja');
+              }}
+            >
+              <span>Histórico / Archivo</span>
+              <span className="sidebar-badge-circle">{resumen.archivados || 0}</span>
+            </button>
+
+            {/* 6. Categorías y Carpetas */}
             <button
               type="button"
               className={`sidebar-btn ${vistaActiva === 'categorias' ? 'active' : ''}`}
               onClick={() => setVistaActiva('categorias')}
-              title="Categorías y Carpetas"
             >
-              <span className="sidebar-icon">📂</span>
-              <span className="btn-label">Categorías y Carpetas</span>
+              <span>Categorías y Carpetas</span>
             </button>
 
-            {/* 4. Alertas y Avisos */}
+            {/* 7. Alertas y Avisos */}
             <button
               type="button"
               className={`sidebar-btn ${vistaActiva === 'alertas' ? 'active' : ''}`}
               onClick={() => setVistaActiva('alertas')}
-              title="Alertas y Avisos"
             >
-              <span className="sidebar-icon">🔔</span>
-              <span className="btn-label">Alertas y Avisos</span>
+              <span>Alertas y Avisos</span>
+              <span className="sidebar-badge-circle">{notificaciones.length}</span>
             </button>
 
-            {/* 5. Control de Estados */}
+            {/* 8. Gestión de Usuarios */}
+            {esAdmin && (
+              <button
+                type="button"
+                className={`sidebar-btn ${vistaActiva === 'usuarios' ? 'active' : ''}`}
+                onClick={() => setVistaActiva('usuarios')}
+              >
+                <span>Gestión de Usuarios</span>
+              </button>
+            )}
+
+            {/* 9. Datos Personales */}
             <button
               type="button"
-              className={`sidebar-btn ${vistaActiva === 'estados' ? 'active' : ''}`}
-              onClick={() => setVistaActiva('estados')}
-              title="Control de Estados (Pendientes / Respondidos / Archivados)"
+              className={`sidebar-btn ${vistaActiva === 'perfil' ? 'active' : ''}`}
+              onClick={() => setVistaActiva('perfil')}
             >
-              <span className="sidebar-icon">⚖️</span>
-              <span className="btn-label">Control de Estados</span>
+              <span>Datos Personales</span>
             </button>
 
-            {/* 6. Cerrar Sesión */}
+            {/* 10. Cerrar Sesión */}
             <button
               type="button"
               className="sidebar-btn btn-logout"
               onClick={handleLogout}
-              title="Cerrar Sesión"
             >
-              <span className="sidebar-icon">🚪</span>
-              <span className="btn-label">Cerrar Sesión</span>
+              <span>Cerrar Sesión</span>
             </button>
           </nav>
         </aside>
 
         {/* ==================== ÁREA DE CONTENIDO ==================== */}
         <main className="content-canvas">
-          {/* ==================== VISTA 1: BANDEJA GENERAL ==================== */}
+          {/* ==================== BANNER HERO AZUL (COMO EN LA FOTO) ==================== */}
+          <div className="hero-banner-card">
+            <div className="hero-icon-box">📄</div>
+            <div className="hero-content">
+              <div className="hero-status-tag">
+                <span>●</span>
+                <span>SESIÓN ACTIVA · {user.nombre} ({user.rol})</span>
+              </div>
+              <h2 className="hero-title">
+                Sistema <span>AUTOMATIZADO DE ARCHIVOS</span>
+              </h2>
+              <p className="hero-subtitle">
+                Panel de gestión de documentos, correspondencia oficial y control de archivo institucional
+              </p>
+            </div>
+          </div>
+
+          {/* ==================== SECCIÓN 1: RESUMEN DE ESTADO DOCUMENTAL ==================== */}
+          <div className="section-heading-group">
+            <h3 className="section-heading-title">
+              <span>🗓️</span>
+              <span>Resumen de Estado Documental</span>
+            </h3>
+            <p className="section-heading-sub">
+              Conteo en tiempo real por etapa y control de vencimientos de correspondencia
+            </p>
+          </div>
+
+          <div className="metrics-row">
+            <div className="metric-card">
+              <div className="metric-icon-bubble amber">⏳</div>
+              <div>
+                <div className="metric-value">{resumen.pendientes || 0}</div>
+                <div className="metric-label">Pendientes</div>
+              </div>
+            </div>
+
+            <div className="metric-card">
+              <div className="metric-icon-bubble green">✓</div>
+              <div>
+                <div className="metric-value">{resumen.respondidos || 0}</div>
+                <div className="metric-label">Respondidos</div>
+              </div>
+            </div>
+
+            <div className="metric-card">
+              <div className="metric-icon-bubble slate">📁</div>
+              <div>
+                <div className="metric-value">{resumen.archivados || 0}</div>
+                <div className="metric-label">Histórico / Archivo</div>
+              </div>
+            </div>
+
+            <div className="metric-card">
+              <div className="metric-icon-bubble red">🚨</div>
+              <div>
+                <div className="metric-value">{(resumen.vencidos || 0) + (resumen.por_vencer || 0)}</div>
+                <div className="metric-label">Vencidos / Por Vencer</div>
+              </div>
+            </div>
+          </div>
+
+          {/* ==================== VISTA 1: BANDEJA / MIS DOCUMENTOS ==================== */}
           {vistaActiva === 'bandeja' && (
             <div>
-              {/* Tarjetas de Métricas de la Bandeja */}
-              <div className="metrics-row">
-                <div className="metric-card">
-                  <div className="metric-icon-bubble blue">📁</div>
-                  <div>
-                    <div className="metric-value">{documentos.length}</div>
-                    <div className="metric-label">Total Documentos</div>
-                  </div>
-                </div>
-
-                <div className="metric-card">
-                  <div className="metric-icon-bubble amber">⏳</div>
-                  <div>
-                    <div className="metric-value">{resumen.pendientes || 0}</div>
-                    <div className="metric-label">Pendientes</div>
-                  </div>
-                </div>
-
-                <div className="metric-card">
-                  <div className="metric-icon-bubble green">✓</div>
-                  <div>
-                    <div className="metric-value">{resumen.respondidos || 0}</div>
-                    <div className="metric-label">Respondidos</div>
-                  </div>
-                </div>
-
-                <div className="metric-card">
-                  <div className="metric-icon-bubble slate">🗄️</div>
-                  <div>
-                    <div className="metric-value">{resumen.archivados || 0}</div>
-                    <div className="metric-label">Archivados</div>
-                  </div>
-                </div>
-
-                <div className="metric-card">
-                  <div className="metric-icon-bubble red">🚨</div>
-                  <div>
-                    <div className="metric-value">{(resumen.vencidos || 0) + (resumen.por_vencer || 0)}</div>
-                    <div className="metric-label">Vencidos / Próximos</div>
-                  </div>
-                </div>
+              <div className="section-heading-group" style={{ marginTop: 8 }}>
+                <h3 className="section-heading-title">
+                  <span>📄</span>
+                  <span>Mis Documentos</span>
+                </h3>
               </div>
 
-              {/* Tarjeta Principal de la Tabla */}
               <div className="main-table-card">
-                <div className="card-section-header">
-                  <div className="card-title-group">
-                    <span className="card-title-main">📥 Bandeja General de Archivos</span>
-                    <span className="card-title-sub">Listado oficial de documentos registrados con control de estados y plazos</span>
+                {/* Barra de herramientas / Filtros como en la foto */}
+                <div className="table-toolbar">
+                  <div className="toolbar-filters">
+                    {/* Selector de Estado */}
+                    <select
+                      className="filter-select"
+                      value={filtroEstado}
+                      onChange={(e) => setFiltroEstado(e.target.value)}
+                    >
+                      <option value="">Todos los estados</option>
+                      <option value="Pendiente">Pendiente</option>
+                      <option value="Respondido">Respondido</option>
+                      <option value="Archivado">Archivado</option>
+                    </select>
+
+                    {/* Selector de Categoría */}
+                    <select
+                      className="filter-select"
+                      value={filtroCategoria}
+                      onChange={(e) => setFiltroCategoria(e.target.value)}
+                    >
+                      <option value="">Todas las categorias</option>
+                      {categorias.map((c) => (
+                        <option key={c.id_categoria} value={c.id_categoria}>
+                          {c.nombre}
+                        </option>
+                      ))}
+                    </select>
+
+                    {/* Buscador de texto */}
+                    <div className="search-input-box">
+                      <span className="search-icon">🔍</span>
+                      <input
+                        placeholder="Buscar por asunto, remitente o correlativo..."
+                        value={filtroBusqueda}
+                        onChange={(e) => setFiltroBusqueda(e.target.value)}
+                      />
+                    </div>
+
+                    {(filtroEstado || filtroCategoria || filtroBusqueda) && (
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => {
+                          setFiltroEstado('');
+                          setFiltroCategoria('');
+                          setFiltroBusqueda('');
+                        }}
+                      >
+                        Limpiar
+                      </button>
+                    )}
                   </div>
+
                   {puedeEscribir && (
                     <button
                       type="button"
                       className="btn-primary"
                       onClick={() => setVistaActiva('recepcion')}
                     >
-                      ＋ Recepcionar Documento
+                      ＋ Registrar Documento
                     </button>
                   )}
                 </div>
 
-                {/* Filtros */}
-                <div className="filter-toolbar">
-                  <div className="search-input-box">
-                    <span className="search-icon">🔍</span>
-                    <input
-                      placeholder="Buscar por asunto, remitente o número correlativo..."
-                      value={filtroBusqueda}
-                      onChange={(e) => setFiltroBusqueda(e.target.value)}
-                    />
-                  </div>
-
-                  <select
-                    className="filter-select"
-                    value={filtroCategoria}
-                    onChange={(e) => setFiltroCategoria(e.target.value)}
-                  >
-                    <option value="">-- Todas las Categorías --</option>
-                    {categorias.map((c) => (
-                      <option key={c.id_categoria} value={c.id_categoria}>
-                        {c.nombre}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    className="filter-select"
-                    value={filtroEstado}
-                    onChange={(e) => setFiltroEstado(e.target.value)}
-                  >
-                    <option value="">-- Todos los Estados --</option>
-                    <option value="Pendiente">⏳ Pendientes</option>
-                    <option value="Respondido">✓ Respondidos</option>
-                    <option value="Archivado">📁 Archivados</option>
-                  </select>
-
-                  {(filtroBusqueda || filtroCategoria || filtroEstado) && (
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() => {
-                        setFiltroBusqueda('');
-                        setFiltroCategoria('');
-                        setFiltroEstado('');
-                      }}
-                    >
-                      Limpiar Filtros
-                    </button>
-                  )}
-                </div>
-
-                {/* Tabla */}
+                {/* Tabla de Documentos */}
                 <div className="docs-table-wrapper">
                   <table className="docs-table">
                     <thead>
                       <tr>
-                        <th>CORRELATIVO</th>
-                        <th>CATEGORÍA / TIPO</th>
-                        <th>REMITENTE / DESTINATARIO</th>
-                        <th>ASUNTO / DETALLE</th>
+                        <th>ID</th>
+                        <th>TITULO / ASUNTO</th>
+                        <th>CATEGORÍA</th>
                         <th>FECHA INGRESO</th>
-                        <th>PLAZO / VENCIMIENTO</th>
+                        <th>PLAZO</th>
                         <th>ESTADO</th>
                         <th style={{ textAlign: 'right' }}>ACCIONES</th>
                       </tr>
@@ -720,8 +816,8 @@ export default function App() {
                     <tbody>
                       {documentos.length === 0 ? (
                         <tr>
-                          <td colSpan={8} style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
-                            {cargando ? 'Cargando documentos...' : 'No se encontraron documentos en la bandeja.'}
+                          <td colSpan={7} style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
+                            {cargando ? 'Cargando documentos...' : 'No se encontraron documentos registrados.'}
                           </td>
                         </tr>
                       ) : (
@@ -734,15 +830,11 @@ export default function App() {
                                 <div className="col-subtext">{d.numero_recepcion}</div>
                               </td>
                               <td>
+                                <div className="col-title-main" style={{ fontSize: '0.85rem' }}>{d.asunto}</div>
+                                <div className="col-subtext">De: {d.remitente} {d.destinatario ? `| Para: ${d.destinatario}` : ''}</div>
+                              </td>
+                              <td>
                                 <span className="badge-categoria">{d.categoria || d.tipo_documento}</span>
-                              </td>
-                              <td>
-                                <div className="col-title-main">{d.remitente}</div>
-                                {d.destinatario && <div className="col-subtext">Para: {d.destinatario}</div>}
-                              </td>
-                              <td>
-                                <div className="col-title-main">{d.asunto}</div>
-                                {d.observaciones && <div className="col-subtext">{d.observaciones}</div>}
                               </td>
                               <td style={{ whiteSpace: 'nowrap' }}>
                                 {formatearFechaCorta(d.fecha_recepcion)}
@@ -750,7 +842,7 @@ export default function App() {
                               <td>
                                 <span className={`badge-plazo ${plazo.clase}`}>
                                   <span>{plazo.icono}</span>
-                                  <span>{d.fecha_vencimiento ? formatearFechaCorta(d.fecha_vencimiento) : 'Sin límite'}</span>
+                                  <span>{d.fecha_vencimiento ? formatearFechaCorta(d.fecha_vencimiento) : 'Vigente'}</span>
                                 </span>
                               </td>
                               <td>
@@ -777,15 +869,48 @@ export default function App() {
                                     onClick={() => abrirDetalleDocumento(d.id_documento)}
                                     title="Ver detalle y trazabilidad"
                                   >
-                                    ℹ️ Detalle
+                                    ℹ️
                                   </button>
                                   {puedeEscribir && (
                                     <>
+                                      {d.estado === 'Pendiente' && (
+                                        <button
+                                          type="button"
+                                          className="btn-table-action"
+                                          style={{ background: '#D1FAE5', color: '#065F46', borderColor: '#A7F3D0' }}
+                                          onClick={() => handleCambiarEstado(d.id_documento, 'Respondido')}
+                                          title="Marcar como Respondido"
+                                        >
+                                          ✓
+                                        </button>
+                                      )}
+                                      {d.estado !== 'Archivado' && (
+                                        <button
+                                          type="button"
+                                          className="btn-table-action"
+                                          style={{ background: '#E2E8F0', color: '#334155', borderColor: '#CBD5E1' }}
+                                          onClick={() => handleCambiarEstado(d.id_documento, 'Archivado')}
+                                          title="Pasar a Archivo"
+                                        >
+                                          📁
+                                        </button>
+                                      )}
+                                      {d.estado === 'Archivado' && (
+                                        <button
+                                          type="button"
+                                          className="btn-table-action"
+                                          style={{ background: '#FEF3C7', color: '#92400E', borderColor: '#FDE68A' }}
+                                          onClick={() => handleCambiarEstado(d.id_documento, 'Pendiente')}
+                                          title="Reabrir a Pendiente"
+                                        >
+                                          ⏳
+                                        </button>
+                                      )}
                                       <button
                                         type="button"
                                         className="btn-table-action btn-edit"
                                         onClick={() => setEditandoDoc({ ...d })}
-                                        title="Editar datos del documento"
+                                        title="Editar documento"
                                       >
                                         ✏️
                                       </button>
@@ -814,58 +939,54 @@ export default function App() {
 
           {/* ==================== VISTA 2: RECEPCIÓN Y DIGITALIZACIÓN ==================== */}
           {vistaActiva === 'recepcion' && (
-            <div className="main-table-card" style={{ maxWidth: 900, margin: '0 auto 24px' }}>
-              <div className="card-section-header">
-                <div className="card-title-group">
-                  <span className="card-title-main">📄 Recepción y Digitalización de Documentos</span>
-                  <span className="card-title-sub">
-                    Ingreso oficial con generación automática de correlativo y clasificación en carpetas institucionales
-                  </span>
+            <div className="main-table-card" style={{ maxWidth: 880, margin: '0 auto 24px' }}>
+              <div className="table-toolbar">
+                <div className="section-heading-group" style={{ margin: 0 }}>
+                  <h3 className="section-heading-title">📄 Recepción y Digitalización de Documentos</h3>
+                  <p className="section-heading-sub">Registro de correspondencia con número correlativo automático y clasificación en carpetas</p>
                 </div>
                 <button
                   type="button"
                   className="btn-secondary"
                   onClick={() => setVistaActiva('bandeja')}
                 >
-                  ← Ir a Bandeja General
+                  ← Volver a Bandeja
                 </button>
               </div>
 
-              <form className="modal-body" onSubmit={handleCrearDocumento} style={{ padding: '24px 28px' }}>
+              <form className="modal-body" onSubmit={handleCrearDocumento} style={{ padding: '24px' }}>
                 {recepcionMsg.texto && (
                   <div
                     className={recepcionMsg.tipo === 'error' ? 'alert-error' : 'alert-success'}
-                    style={{ marginBottom: 18 }}
+                    style={{ marginBottom: 16 }}
                   >
                     {recepcionMsg.tipo === 'error' ? '⚠️' : '✓'} {recepcionMsg.texto}
                   </div>
                 )}
 
                 <div className="form-grid">
-                  {/* Correlativos Automáticos */}
                   <div className="form-group">
-                    <label>1. N° de Recepción (Correlativo Automático)</label>
+                    <label>1. N° de Recepción (Automático)</label>
                     <input
                       className="form-control"
                       value={recepcionForm.numero_recepcion}
                       readOnly
-                      style={{ background: '#F1F5F9', fontWeight: 800, color: '#0F355E' }}
+                      style={{ background: '#F1F5F9', fontWeight: 800, color: '#0B223D' }}
                     />
                   </div>
 
                   <div className="form-group">
-                    <label>2. N° de Documento (Correlativo Institucional)</label>
+                    <label>2. N° de Documento (Secuencia Institucional)</label>
                     <input
                       className="form-control"
-                      value="DOC-2026-XXXX (Generado al guardar)"
+                      value="DOC-2026-XXXX (Automático al guardar)"
                       readOnly
                       style={{ background: '#F1F5F9', fontWeight: 700, color: '#475569' }}
                     />
                   </div>
 
-                  {/* Fecha y Hora Automáticas */}
                   <div className="form-group">
-                    <label>3. Fecha de Recepción (Automática)</label>
+                    <label>3. Fecha de Recepción</label>
                     <input
                       type="date"
                       className="form-control"
@@ -876,7 +997,7 @@ export default function App() {
                   </div>
 
                   <div className="form-group">
-                    <label>4. Hora de Recepción (Automática)</label>
+                    <label>4. Hora de Recepción</label>
                     <input
                       className="form-control"
                       value={recepcionForm.hora_recepcion}
@@ -885,7 +1006,6 @@ export default function App() {
                     />
                   </div>
 
-                  {/* Tipo de Documento */}
                   <div className="form-group">
                     <label>5. Tipo de Documento *</label>
                     <select
@@ -900,7 +1020,6 @@ export default function App() {
                     </select>
                   </div>
 
-                  {/* Categoría / Carpeta destino */}
                   <div className="form-group">
                     <label>6. Carpeta de Almacenamiento *</label>
                     <select
@@ -917,9 +1036,8 @@ export default function App() {
                     </select>
                   </div>
 
-                  {/* Remitente y Destinatario */}
                   <div className="form-group">
-                    <label>7. Remitente / Institución Emisora *</label>
+                    <label>7. Remitente / Entidad Emisora *</label>
                     <input
                       className="form-control"
                       placeholder="Persona o institución que envía"
@@ -930,31 +1048,29 @@ export default function App() {
                   </div>
 
                   <div className="form-group">
-                    <label>8. Destinatario / Departamento *</label>
+                    <label>8. Destinatario / Para *</label>
                     <input
                       className="form-control"
-                      placeholder="Ej. Dirección / Jefatura / Secretaría"
+                      placeholder="Ej. Dirección General / Jefatura"
                       value={recepcionForm.destinatario}
                       onChange={(e) => setRecepcionForm({ ...recepcionForm, destinatario: e.target.value })}
                       required
                     />
                   </div>
 
-                  {/* Asunto */}
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
                     <label>9. Asunto del Documento *</label>
                     <input
                       className="form-control"
-                      placeholder="Descripción breve del contenido o trámite solicitado"
+                      placeholder="Resumen del trámite o contenido..."
                       value={recepcionForm.asunto}
                       onChange={(e) => setRecepcionForm({ ...recepcionForm, asunto: e.target.value })}
                       required
                     />
                   </div>
 
-                  {/* Plazo / Fecha Límite */}
                   <div className="form-group">
-                    <label>10. Fecha Límite / Vencimiento (Para Alertas)</label>
+                    <label>10. Fecha Límite / Vencimiento (Para alertas)</label>
                     <input
                       type="date"
                       className="form-control"
@@ -963,20 +1079,18 @@ export default function App() {
                     />
                   </div>
 
-                  {/* Estado inicial unificado */}
                   <div className="form-group">
                     <label>11. Estado Inicial</label>
                     <input
                       className="form-control"
-                      value="⏳ Pendiente (Inicial)"
+                      value="⏳ Pendiente"
                       readOnly
                       style={{ background: '#FFFBEB', color: '#B45309', fontWeight: 800 }}
                     />
                   </div>
 
-                  {/* Digitalización de archivo */}
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label>12. Digitalización de Archivo (PDF / DOC / JPG / PNG) *</label>
+                    <label>12. Digitalización de Archivo (PDF / DOC / Imagen) *</label>
                     <input
                       type="file"
                       className="form-control"
@@ -985,13 +1099,12 @@ export default function App() {
                       required
                     />
                     {recepcionForm.archivo && (
-                      <div style={{ fontSize: '0.8rem', color: '#059669', marginTop: 4, fontWeight: 600 }}>
-                        ✓ Archivo seleccionado: {recepcionForm.archivo.name} ({(recepcionForm.archivo.size / 1024).toFixed(1)} KB)
+                      <div style={{ fontSize: '0.78rem', color: '#059669', marginTop: 4, fontWeight: 700 }}>
+                        ✓ Archivo: {recepcionForm.archivo.name} ({(recepcionForm.archivo.size / 1024).toFixed(1)} KB)
                       </div>
                     )}
                   </div>
 
-                  {/* Observaciones y Anexos */}
                   <div className="form-group">
                     <label>Cantidad de Anexos Físicos</label>
                     <input
@@ -1004,7 +1117,7 @@ export default function App() {
                   </div>
 
                   <div className="form-group">
-                    <label>Observaciones Adicionales</label>
+                    <label>Observaciones</label>
                     <input
                       className="form-control"
                       placeholder="Notas de recepción..."
@@ -1014,7 +1127,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24, paddingTop: 16, borderTop: '1px solid #E2E8F0' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20, paddingTop: 14, borderTop: '1px solid #E2E8F0' }}>
                   <button
                     type="button"
                     className="btn-secondary"
@@ -1027,7 +1140,7 @@ export default function App() {
                     className="btn-primary"
                     disabled={subiendoDoc}
                   >
-                    {subiendoDoc ? 'Registrando...' : '📥 Registrar y Guardar Documento'}
+                    {subiendoDoc ? 'Registrando...' : '📥 Registrar y Almacenar Documento'}
                   </button>
                 </div>
               </form>
@@ -1036,261 +1149,332 @@ export default function App() {
 
           {/* ==================== VISTA 3: CATEGORÍAS Y CARPETAS ==================== */}
           {vistaActiva === 'categorias' && (
-            <div>
-              <div className="main-table-card">
-                <div className="card-section-header">
-                  <div className="card-title-group">
-                    <span className="card-title-main">📂 Clasificación y Almacenamiento por Carpetas</span>
-                    <span className="card-title-sub">
-                      Organización y guardado de documentos en carpetas físicas según su categoría (Cartas, Solicitudes, Informes, Memorándums)
-                    </span>
-                  </div>
+            <div className="main-table-card">
+              <div className="table-toolbar">
+                <div className="section-heading-group" style={{ margin: 0 }}>
+                  <h3 className="section-heading-title">📂 Categorías y Carpetas de Almacenamiento</h3>
+                  <p className="section-heading-sub">Estructura física de carpetas organizadas en storage según su clasificación</p>
                 </div>
+              </div>
 
-                {esAdmin && (
-                  <div style={{ padding: '20px 24px', background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
-                    <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0F355E', marginBottom: 12 }}>
-                      ＋ Crear Nueva Carpeta / Categoría
-                    </h4>
-                    <form onSubmit={handleCrearCategoria} style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                      <input
-                        className="form-control"
-                        placeholder="Nombre de carpeta (ej. Circulares)"
-                        value={nuevaCat.nombre}
-                        onChange={(e) => setNuevaCat({ ...nuevaCat, nombre: e.target.value })}
-                        required
-                        style={{ flex: 1, minWidth: 200 }}
-                      />
-                      <input
-                        className="form-control"
-                        placeholder="Descripción"
-                        value={nuevaCat.descripcion}
-                        onChange={(e) => setNuevaCat({ ...nuevaCat, descripcion: e.target.value })}
-                        style={{ flex: 2, minWidth: 240 }}
-                      />
-                      <button type="submit" className="btn-primary">
-                        ＋ Crear Carpeta
-                      </button>
-                    </form>
-                    {catMsg && <div style={{ fontSize: '0.8rem', color: '#059669', fontWeight: 600, marginTop: 8 }}>{catMsg}</div>}
-                  </div>
-                )}
+              {esAdmin && (
+                <div style={{ padding: '16px 20px', background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                  <h4 style={{ fontSize: '0.84rem', fontWeight: 800, color: '#0B223D', marginBottom: 10 }}>
+                    ＋ Crear Nueva Carpeta / Categoría
+                  </h4>
+                  <form onSubmit={handleCrearCategoria} style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <input
+                      className="form-control"
+                      placeholder="Nombre de categoría (ej. Resoluciones)"
+                      value={nuevaCat.nombre}
+                      onChange={(e) => setNuevaCat({ ...nuevaCat, nombre: e.target.value })}
+                      required
+                      style={{ flex: 1, minWidth: 180 }}
+                    />
+                    <input
+                      className="form-control"
+                      placeholder="Descripción"
+                      value={nuevaCat.descripcion}
+                      onChange={(e) => setNuevaCat({ ...nuevaCat, descripcion: e.target.value })}
+                      style={{ flex: 2, minWidth: 220 }}
+                    />
+                    <button type="submit" className="btn-primary">
+                      ＋ Crear Carpeta
+                    </button>
+                  </form>
+                  {catMsg && <div style={{ fontSize: '0.78rem', color: '#059669', fontWeight: 700, marginTop: 6 }}>{catMsg}</div>}
+                </div>
+              )}
 
-                {/* Grid de Carpetas */}
-                <div className="folders-grid">
-                  {categorias.map((c) => {
-                    const cantDocs = documentos.filter((d) => d.id_categoria === c.id_categoria).length;
-                    return (
-                      <div key={c.id_categoria} className="folder-card">
-                        <div className="folder-card-header">
-                          <div className="folder-card-icon">📁</div>
-                          <div>
-                            <div className="folder-card-title">{c.nombre}</div>
-                            <div style={{ fontSize: '0.74rem', color: '#64748B' }}>#{c.id_categoria}</div>
-                          </div>
-                        </div>
-
-                        <div className="folder-card-desc">
-                          {c.descripcion || 'Sin descripción'}
-                        </div>
-
-                        <div className="folder-card-path">
-                          {c.carpeta}
-                        </div>
-
-                        <div className="folder-card-footer">
-                          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0F355E' }}>
-                            {cantDocs} documento(s)
-                          </span>
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button
-                              type="button"
-                              className="btn-table-action btn-view"
-                              onClick={() => {
-                                setFiltroCategoria(String(c.id_categoria));
-                                setVistaActiva('bandeja');
-                              }}
-                              title="Explorar documentos en esta carpeta"
-                            >
-                              🔍 Ver
-                            </button>
-                            {esAdmin && (
-                              <>
-                                <button
-                                  type="button"
-                                  className="btn-table-action btn-edit"
-                                  onClick={() => setEditandoCategoria({ ...c })}
-                                  title="Editar nombre/descripción"
-                                >
-                                  ✏️
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn-table-action btn-delete"
-                                  onClick={() => handleEliminarCategoria(c.id_categoria, c.nombre)}
-                                  title="Eliminar carpeta"
-                                >
-                                  🗑️
-                                </button>
-                              </>
-                            )}
-                          </div>
+              <div className="folders-grid">
+                {categorias.map((c) => {
+                  const cantDocs = documentos.filter((d) => d.id_categoria === c.id_categoria).length;
+                  return (
+                    <div key={c.id_categoria} className="folder-card">
+                      <div className="folder-card-header">
+                        <div className="folder-card-icon">📁</div>
+                        <div>
+                          <div className="folder-card-title">{c.nombre}</div>
+                          <div style={{ fontSize: '0.72rem', color: '#64748B' }}>#{c.id_categoria}</div>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
+
+                      <div className="folder-card-desc">
+                        {c.descripcion || 'Sin descripción'}
+                      </div>
+
+                      <div className="folder-card-path">
+                        {c.carpeta}
+                      </div>
+
+                      <div className="folder-card-footer">
+                        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0B223D' }}>
+                          {cantDocs} documento(s)
+                        </span>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            type="button"
+                            className="btn-table-action btn-view"
+                            onClick={() => {
+                              setFiltroCategoria(String(c.id_categoria));
+                              setVistaActiva('bandeja');
+                            }}
+                            title="Ver documentos de esta carpeta"
+                          >
+                            🔍 Ver
+                          </button>
+                          {esAdmin && (
+                            <>
+                              <button
+                                type="button"
+                                className="btn-table-action btn-edit"
+                                onClick={() => setEditandoCategoria({ ...c })}
+                                title="Editar categoría"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-table-action btn-delete"
+                                onClick={() => handleEliminarCategoria(c.id_categoria, c.nombre)}
+                                title="Eliminar categoría"
+                              >
+                                🗑️
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
 
           {/* ==================== VISTA 4: ALERTAS Y AVISOS ==================== */}
           {vistaActiva === 'alertas' && (
-            <div>
-              {/* Tarjetas de Métricas de Alertas */}
-              <div className="metrics-row">
-                <div className="metric-card">
-                  <div className="metric-icon-bubble red">🚨</div>
-                  <div>
-                    <div className="metric-value">{resumen.vencidos || 0}</div>
-                    <div className="metric-label">Documentos Vencidos</div>
-                  </div>
+            <div className="main-table-card">
+              <div className="table-toolbar">
+                <div className="section-heading-group" style={{ margin: 0 }}>
+                  <h3 className="section-heading-title">🔔 Automatización de Tareas: Alertas y Avisos</h3>
+                  <p className="section-heading-sub">Historial automático de alertas generadas por vencimientos de trámites y cambios de estado</p>
                 </div>
-
-                <div className="metric-card">
-                  <div className="metric-icon-bubble amber">⏳</div>
-                  <div>
-                    <div className="metric-value">{resumen.por_vencer || 0}</div>
-                    <div className="metric-label">Próximos a Vencer (3 días)</div>
-                  </div>
-                </div>
-
-                <div className="metric-card">
-                  <div className="metric-icon-bubble green">🟢</div>
-                  <div>
-                    <div className="metric-value">{resumen.pendientes || 0}</div>
-                    <div className="metric-label">Pendientes en Monitoreo</div>
-                  </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={handleGenerarAlertas}
+                  >
+                    ⚡ Chequear Vencimientos Ahora
+                  </button>
+                  {notificaciones.length > 0 && esAdmin && (
+                    <button
+                      type="button"
+                      className="btn-danger"
+                      onClick={handleLimpiarNotificaciones}
+                    >
+                      🗑️ Limpiar Historial
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <div className="main-table-card">
-                <div className="card-section-header">
-                  <div className="card-title-group">
-                    <span className="card-title-main">🔔 Automatización de Tareas: Alertas y Avisos</span>
-                    <span className="card-title-sub">
-                      Monitoreo inteligente de documentos pendientes, alertas de plazos por vencer y registro cronológico
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 10 }}>
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={handleGenerarAlertas}
-                    >
-                      ⚡ Ejecutar Chequeo Ahora
-                    </button>
-                    {notificaciones.length > 0 && esAdmin && (
-                      <button
-                        type="button"
-                        className="btn-danger"
-                        onClick={handleLimpiarNotificaciones}
-                      >
-                        🗑️ Limpiar Historial
-                      </button>
+              <div className="docs-table-wrapper">
+                <table className="docs-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>DOCUMENTO</th>
+                      <th>MENSAJE DE ALERTA GENERADO POR EL SISTEMA</th>
+                      <th>FECHA Y HORA</th>
+                      <th>ESTADO</th>
+                      <th style={{ textAlign: 'right' }}>ACCIONES</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {notificaciones.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} style={{ textAlign: 'center', padding: '36px', color: '#64748B' }}>
+                          No hay alertas registradas en este momento.
+                        </td>
+                      </tr>
+                    ) : (
+                      notificaciones.map((n) => {
+                        const esVencido = n.mensaje.includes('VENCIDO');
+                        const esPorVencer = n.mensaje.includes('vence el');
+                        return (
+                          <tr key={n.id_notificacion}>
+                            <td className="col-id">#{n.id_notificacion}</td>
+                            <td>
+                              <span className="badge-categoria">
+                                {n.numero_documento || `Doc #${n.id_documento}`}
+                              </span>
+                            </td>
+                            <td className="col-title-main">
+                              <span style={{ marginRight: 6 }}>
+                                {esVencido ? '🚨' : esPorVencer ? '⏳' : 'ℹ️'}
+                              </span>
+                              {n.mensaje}
+                            </td>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              {formatearFechaCorta(n.fecha_notificacion)}
+                            </td>
+                            <td>
+                              <span className={`badge-plazo ${esVencido ? 'expirado' : esPorVencer ? 'por-vencer' : 'en-plazo'}`}>
+                                {esVencido ? 'Vencido' : esPorVencer ? 'Por Vencer' : 'Procesada'}
+                              </span>
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              <div className="table-action-group" style={{ justifyContent: 'flex-end' }}>
+                                {n.id_documento && (
+                                  <button
+                                    type="button"
+                                    className="btn-table-action btn-view"
+                                    onClick={() => abrirDetalleDocumento(n.id_documento)}
+                                    title="Ver documento relacionado"
+                                  >
+                                    👁️ Ver
+                                  </button>
+                                )}
+                                {esAdmin && (
+                                  <button
+                                    type="button"
+                                    className="btn-table-action btn-delete"
+                                    onClick={async () => {
+                                      await apiFetch(`/notificaciones/${n.id_notificacion}`, { method: 'DELETE' });
+                                      cargarTodo();
+                                    }}
+                                    title="Eliminar aviso"
+                                  >
+                                    🗑️
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
-                  </div>
-                </div>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
-                {/* Filtro de alertas */}
-                <div className="filter-toolbar">
-                  <select
-                    className="filter-select"
-                    value={filtroAlertas}
-                    onChange={(e) => setFiltroAlertas(e.target.value)}
-                  >
-                    <option value="todas">-- Todas las Alertas ({notificaciones.length}) --</option>
-                    <option value="vencidos">🚨 Solo Documentos Vencidos</option>
-                    <option value="por_vencer">⏳ Solo Próximos a Vencer</option>
-                  </select>
+          {/* ==================== VISTA 5: GESTIÓN DE USUARIOS ==================== */}
+          {vistaActiva === 'usuarios' && esAdmin && (
+            <div className="main-table-card">
+              <div className="table-toolbar">
+                <div className="section-heading-group" style={{ margin: 0 }}>
+                  <h3 className="section-heading-title">👥 Gestión de Usuarios y Roles del Sistema</h3>
+                  <p className="section-heading-sub">Administración de credenciales de acceso para Administradores, Secretarias y Personal de Consulta</p>
                 </div>
+              </div>
+
+              <div style={{ padding: '20px' }}>
+                <form
+                  onSubmit={handleCrearUsuario}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                    gap: 10,
+                    background: '#F8FAFC',
+                    padding: 16,
+                    borderRadius: 8,
+                    border: '1px solid #E2E8F0',
+                    marginBottom: 20,
+                  }}
+                >
+                  <input
+                    className="form-control"
+                    placeholder="Nombre completo"
+                    value={nuevoUsuario.nombre}
+                    onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, nombre: e.target.value })}
+                    required
+                  />
+                  <input
+                    className="form-control"
+                    placeholder="Usuario (login)"
+                    value={nuevoUsuario.usuario}
+                    onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, usuario: e.target.value })}
+                    required
+                  />
+                  <input
+                    type="password"
+                    className="form-control"
+                    placeholder="Contraseña (mín. 8 caracteres)"
+                    value={nuevoUsuario.contrasena}
+                    onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, contrasena: e.target.value })}
+                    required
+                  />
+                  <select
+                    className="form-control"
+                    value={nuevoUsuario.rol}
+                    onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, rol: e.target.value })}
+                  >
+                    <option value="Administrador">Administrador</option>
+                    <option value="Secretaria">Secretaria</option>
+                    <option value="Consulta">Consulta</option>
+                  </select>
+                  <button type="submit" className="btn-primary">
+                    ＋ Registrar Usuario
+                  </button>
+                </form>
+
+                {userMsg.texto && (
+                  <div
+                    className={userMsg.tipo === 'error' ? 'alert-error' : 'alert-success'}
+                    style={{ marginBottom: 16 }}
+                  >
+                    {userMsg.texto}
+                  </div>
+                )}
 
                 <div className="docs-table-wrapper">
                   <table className="docs-table">
                     <thead>
                       <tr>
                         <th>ID</th>
-                        <th>DOCUMENTO</th>
-                        <th>MENSAJE DE ALERTA GENERADO POR EL SISTEMA</th>
-                        <th>FECHA DE EMISIÓN</th>
-                        <th>ESTADO DE ALERTA</th>
+                        <th>NOMBRE COMPLETO</th>
+                        <th>USUARIO (LOGIN)</th>
+                        <th>ROL ASIGNADO</th>
                         <th style={{ textAlign: 'right' }}>ACCIONES</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {notificacionesFiltradas.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} style={{ textAlign: 'center', padding: '36px', color: '#64748B' }}>
-                            No hay alertas registradas en este momento.
+                      {usuariosList.map((u) => (
+                        <tr key={u.id_usuario}>
+                          <td className="col-id">#{u.id_usuario}</td>
+                          <td className="col-title-main">{u.nombre}</td>
+                          <td>{u.usuario}</td>
+                          <td>
+                            <span className="badge-categoria">{u.rol}</span>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <div className="table-action-group" style={{ justifyContent: 'flex-end' }}>
+                              <button
+                                type="button"
+                                className="btn-table-action btn-edit"
+                                onClick={() => setEditandoUsuario({ ...u, contrasena: '' })}
+                                title="Editar usuario"
+                              >
+                                ✏️ Editar
+                              </button>
+                              {u.id_usuario !== user.id && (
+                                <button
+                                  type="button"
+                                  className="btn-table-action btn-delete"
+                                  onClick={() => handleEliminarUsuario(u.id_usuario, u.nombre)}
+                                  title="Eliminar usuario"
+                                >
+                                  🗑️ Eliminar
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
-                      ) : (
-                        notificacionesFiltradas.map((n) => {
-                          const esVencido = n.mensaje.includes('VENCIDO');
-                          const esPorVencer = n.mensaje.includes('vence el');
-                          return (
-                            <tr key={n.id_notificacion}>
-                              <td className="col-id">#{n.id_notificacion}</td>
-                              <td>
-                                <span className="badge-categoria">
-                                  {n.numero_documento || `Doc #${n.id_documento}`}
-                                </span>
-                              </td>
-                              <td className="col-title-main">
-                                <span style={{ marginRight: 6 }}>
-                                  {esVencido ? '🚨' : esPorVencer ? '⏳' : 'ℹ️'}
-                                </span>
-                                {n.mensaje}
-                              </td>
-                              <td style={{ whiteSpace: 'nowrap' }}>
-                                {formatearFechaCorta(n.fecha_notificacion)}
-                              </td>
-                              <td>
-                                <span className={`badge-plazo ${esVencido ? 'expirado' : esPorVencer ? 'por-vencer' : 'en-plazo'}`}>
-                                  {esVencido ? 'Expirado' : esPorVencer ? 'Por Vencer' : 'Procesada'}
-                                </span>
-                              </td>
-                              <td style={{ textAlign: 'right' }}>
-                                <div className="table-action-group" style={{ justifyContent: 'flex-end' }}>
-                                  {n.id_documento && (
-                                    <button
-                                      type="button"
-                                      className="btn-table-action btn-view"
-                                      onClick={() => abrirDetalleDocumento(n.id_documento)}
-                                      title="Ver documento relacionado"
-                                    >
-                                      👁️ Ver Doc
-                                    </button>
-                                  )}
-                                  {esAdmin && (
-                                    <button
-                                      type="button"
-                                      className="btn-table-action btn-delete"
-                                      onClick={async () => {
-                                        await apiFetch(`/notificaciones/${n.id_notificacion}`, { method: 'DELETE' });
-                                        cargarTodo();
-                                      }}
-                                      title="Eliminar aviso"
-                                    >
-                                      🗑️
-                                    </button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -1298,187 +1482,20 @@ export default function App() {
             </div>
           )}
 
-          {/* ==================== VISTA 5: CONTROL DE ESTADOS (UNIFICADO EN 3) ==================== */}
-          {vistaActiva === 'estados' && (
-            <div>
-              <div className="main-table-card">
-                <div className="card-section-header">
-                  <div className="card-title-group">
-                    <span className="card-title-main">⚖️ Control de Estados del Ciclo de Vida Documental</span>
-                    <span className="card-title-sub">
-                      Unificación exacta en tres estados: Pendientes, Respondidos y Archivados
-                    </span>
-                  </div>
+          {/* ==================== VISTA 6: DATOS PERSONALES / PERFIL ==================== */}
+          {vistaActiva === 'perfil' && (
+            <div className="main-table-card" style={{ maxWidth: 650, margin: '0 auto 24px' }}>
+              <div className="table-toolbar">
+                <div className="section-heading-group" style={{ margin: 0 }}>
+                  <h3 className="section-heading-title">👤 Datos Personales y Sesión Activa</h3>
+                  <p className="section-heading-sub">Información del usuario autenticado en el sistema</p>
                 </div>
-
-                {/* Pestañas grandes de los 3 estados */}
-                <div className="status-tabs-nav">
-                  <button
-                    type="button"
-                    className={`status-tab-btn pending ${tabEstadoControl === 'Pendiente' ? 'active' : ''}`}
-                    onClick={() => setTabEstadoControl('Pendiente')}
-                  >
-                    <span>⏳ PENDIENTES</span>
-                    <span className="tab-count-badge">{resumen.pendientes || 0}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`status-tab-btn answered ${tabEstadoControl === 'Respondido' ? 'active' : ''}`}
-                    onClick={() => setTabEstadoControl('Respondido')}
-                  >
-                    <span>✓ RESPONDIDOS</span>
-                    <span className="tab-count-badge">{resumen.respondidos || 0}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`status-tab-btn archived ${tabEstadoControl === 'Archivado' ? 'active' : ''}`}
-                    onClick={() => setTabEstadoControl('Archivado')}
-                  >
-                    <span>📁 ARCHIVADOS</span>
-                    <span className="tab-count-badge">{resumen.archivados || 0}</span>
-                  </button>
-                </div>
-
-                {/* Tabla de documentos filtrados por el estado seleccionado */}
-                <div className="docs-table-wrapper">
-                  <table className="docs-table">
-                    <thead>
-                      <tr>
-                        <th>CORRELATIVO</th>
-                        <th>CATEGORÍA</th>
-                        <th>REMITENTE</th>
-                        <th>ASUNTO</th>
-                        <th>FECHA INGRESO</th>
-                        <th>PLAZO / VENCIMIENTO</th>
-                        <th style={{ textAlign: 'right' }}>CAMBIO DE ESTADO Y ACCIONES</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {documentosPorEstado.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} style={{ textAlign: 'center', padding: '36px', color: '#64748B' }}>
-                            No hay documentos con estado &quot;{tabEstadoControl}&quot;.
-                          </td>
-                        </tr>
-                      ) : (
-                        documentosPorEstado.map((d) => {
-                          const plazo = calcularEstadoPlazo(d.fecha_vencimiento, d.estado);
-                          return (
-                            <tr key={d.id_documento}>
-                              <td className="col-id">
-                                <div>{d.numero_documento}</div>
-                                <div className="col-subtext">{d.numero_recepcion}</div>
-                              </td>
-                              <td>
-                                <span className="badge-categoria">{d.categoria || d.tipo_documento}</span>
-                              </td>
-                              <td>
-                                <div className="col-title-main">{d.remitente}</div>
-                                {d.destinatario && <div className="col-subtext">Para: {d.destinatario}</div>}
-                              </td>
-                              <td>
-                                <div className="col-title-main">{d.asunto}</div>
-                              </td>
-                              <td style={{ whiteSpace: 'nowrap' }}>
-                                {formatearFechaCorta(d.fecha_recepcion)}
-                              </td>
-                              <td>
-                                <span className={`badge-plazo ${plazo.clase}`}>
-                                  <span>{plazo.icono}</span>
-                                  <span>{d.fecha_vencimiento ? formatearFechaCorta(d.fecha_vencimiento) : 'Sin límite'}</span>
-                                </span>
-                              </td>
-                              <td style={{ textAlign: 'right' }}>
-                                <div className="table-action-group" style={{ justifyContent: 'flex-end' }}>
-                                  {/* Botones de acción directa según el estado actual */}
-                                  {d.estado === 'Pendiente' && puedeEscribir && (
-                                    <>
-                                      <button
-                                        type="button"
-                                        className="btn-table-action"
-                                        style={{ background: '#D1FAE5', color: '#065F46', borderColor: '#A7F3D0' }}
-                                        onClick={() => handleCambiarEstado(d.id_documento, 'Respondido')}
-                                        title="Marcar este trámite como Respondido"
-                                      >
-                                        ✓ Responder
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="btn-table-action"
-                                        style={{ background: '#E2E8F0', color: '#334155', borderColor: '#CBD5E1' }}
-                                        onClick={() => handleCambiarEstado(d.id_documento, 'Archivado')}
-                                        title="Pasar documento a Archivo definitivo"
-                                      >
-                                        📁 Archivar
-                                      </button>
-                                    </>
-                                  )}
-
-                                  {d.estado === 'Respondido' && puedeEscribir && (
-                                    <>
-                                      <button
-                                        type="button"
-                                        className="btn-table-action"
-                                        style={{ background: '#E2E8F0', color: '#334155', borderColor: '#CBD5E1' }}
-                                        onClick={() => handleCambiarEstado(d.id_documento, 'Archivado')}
-                                        title="Pasar documento a Archivo definitivo"
-                                      >
-                                        📁 Archivar
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="btn-table-action"
-                                        style={{ background: '#FEF3C7', color: '#92400E', borderColor: '#FDE68A' }}
-                                        onClick={() => handleCambiarEstado(d.id_documento, 'Pendiente')}
-                                        title="Reabrir a Pendiente"
-                                      >
-                                        ⏳ Reabrir
-                                      </button>
-                                    </>
-                                  )}
-
-                                  {d.estado === 'Archivado' && puedeEscribir && (
-                                    <>
-                                      <button
-                                        type="button"
-                                        className="btn-table-action"
-                                        style={{ background: '#FEF3C7', color: '#92400E', borderColor: '#FDE68A' }}
-                                        onClick={() => handleCambiarEstado(d.id_documento, 'Pendiente')}
-                                        title="Reabrir y mover a Pendiente"
-                                      >
-                                        ⏳ Reabrir
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="btn-table-action"
-                                        style={{ background: '#D1FAE5', color: '#065F46', borderColor: '#A7F3D0' }}
-                                        onClick={() => handleCambiarEstado(d.id_documento, 'Respondido')}
-                                        title="Mover a Respondido"
-                                      >
-                                        ✓ Respondido
-                                      </button>
-                                    </>
-                                  )}
-
-                                  <button
-                                    type="button"
-                                    className="btn-table-action btn-view"
-                                    onClick={() => setVisorDoc({ id: d.id_documento, titulo: `${d.numero_documento} - ${d.asunto}` })}
-                                    title="Previsualizar archivo digitalizado"
-                                  >
-                                    👁️ Ver
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+              </div>
+              <div style={{ padding: '24px', display: 'grid', gap: 14 }}>
+                <div><strong>ID de Usuario:</strong> #{user.id}</div>
+                <div><strong>Nombre Completo:</strong> {user.nombre}</div>
+                <div><strong>Rol Asignado:</strong> <span className="badge-categoria">{user.rol}</span></div>
+                <div><strong>Permisos:</strong> {puedeEscribir ? 'Recepción, digitalización, control de estados y edición' : 'Solo lectura y visualización'}</div>
               </div>
             </div>
           )}
@@ -1518,7 +1535,6 @@ export default function App() {
                 )}
               </div>
 
-              {/* Botón para previsualizar documento en el visor */}
               <div style={{ display: 'flex', gap: 10, marginBottom: 18 }}>
                 <button
                   type="button"
@@ -1531,9 +1547,8 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Historial de Trazabilidad (Trigger de PostgreSQL) */}
               <div>
-                <h4 style={{ fontSize: '0.86rem', fontWeight: 800, color: '#0F355E', marginBottom: 8 }}>
+                <h4 style={{ fontSize: '0.86rem', fontWeight: 800, color: '#0B223D', marginBottom: 8 }}>
                   🕒 Historial de Trazabilidad y Cambios de Estado
                 </h4>
                 <div className="docs-table-wrapper">
@@ -1710,6 +1725,65 @@ export default function App() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
                 <button type="button" className="btn-secondary" onClick={() => setEditandoCategoria(null)}>Cancelar</button>
+                <button type="submit" className="btn-primary">💾 Guardar Cambios</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL: EDITAR USUARIO ==================== */}
+      {editandoUsuario && (
+        <div className="modal-backdrop" onClick={() => setEditandoUsuario(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520 }}>
+            <div className="modal-header">
+              <h3>✏️ Editar Usuario #{editandoUsuario.id_usuario}</h3>
+              <button type="button" className="btn-close-modal" onClick={() => setEditandoUsuario(null)}>✕</button>
+            </div>
+            <form className="modal-body" onSubmit={handleGuardarEdicionUsuario}>
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label>Nombre Completo *</label>
+                <input
+                  className="form-control"
+                  value={editandoUsuario.nombre}
+                  onChange={(e) => setEditandoUsuario({ ...editandoUsuario, nombre: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label>Usuario (Login) *</label>
+                <input
+                  className="form-control"
+                  value={editandoUsuario.usuario}
+                  onChange={(e) => setEditandoUsuario({ ...editandoUsuario, usuario: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label>Rol Asignado *</label>
+                <select
+                  className="form-control"
+                  value={editandoUsuario.rol}
+                  onChange={(e) => setEditandoUsuario({ ...editandoUsuario, rol: e.target.value })}
+                  required
+                >
+                  <option value="Administrador">Administrador</option>
+                  <option value="Secretaria">Secretaria</option>
+                  <option value="Consulta">Consulta</option>
+                </select>
+              </div>
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label>Nueva Contraseña (dejar en blanco para mantener la actual)</label>
+                <input
+                  type="password"
+                  className="form-control"
+                  placeholder="Nueva contraseña (opcional)"
+                  value={editandoUsuario.contrasena || ''}
+                  onChange={(e) => setEditandoUsuario({ ...editandoUsuario, contrasena: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+                <button type="button" className="btn-secondary" onClick={() => setEditandoUsuario(null)}>Cancelar</button>
                 <button type="submit" className="btn-primary">💾 Guardar Cambios</button>
               </div>
             </form>
