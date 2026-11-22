@@ -19,8 +19,23 @@ if (!process.env.JWT_SECRET || !process.env.DATABASE_URL) {
 }
 
 const app = express();
-app.use(helmet());
-app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',') || true }));
+app.use(helmet({
+  crossOriginResourcePolicy: false,
+}));
+app.use(cors({
+  origin: (origin, callback) => {
+    // Permitir cualquier puerto local (localhost:5173, 5174, etc.) o configurado en .env
+    if (!origin || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      return callback(null, true);
+    }
+    const envOrigins = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (envOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    callback(null, true);
+  },
+  credentials: true,
+}));
 app.use(express.json());
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
