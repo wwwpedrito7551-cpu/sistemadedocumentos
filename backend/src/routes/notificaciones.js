@@ -7,7 +7,7 @@ const router = Router();
 router.get('/', asyncH(async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 30, 100);
   const { rows } = await query(
-    `SELECT n.*, d.numero_documento
+    `SELECT n.*, d.numero_documento, d.asunto, d.fecha_vencimiento
      FROM notificaciones n
      LEFT JOIN documentos d USING (id_documento)
      ORDER BY n.fecha_notificacion DESC
@@ -15,6 +15,12 @@ router.get('/', asyncH(async (req, res) => {
     [limit],
   );
   res.json(rows);
+}));
+
+// Generar / actualizar alertas de vencimiento bajo demanda
+router.post('/generar-alertas', asyncH(async (_req, res) => {
+  await query('SELECT fn_alertar_vencimientos()');
+  res.json({ ok: true, mensaje: 'Chequeo de vencimientos ejecutado' });
 }));
 
 // Marcar notificación como leída

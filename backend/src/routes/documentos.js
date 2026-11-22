@@ -9,14 +9,11 @@ import { upload, STORAGE_ROOT } from '../middleware/upload.js';
 const router = Router();
 const ESCRITURA = requireRol('Administrador', 'Secretaria');
 
-// Transiciones permitidas entre estados (incluye estados originales y de recepción)
+// Transiciones permitidas entre los 3 estados unificados
 const TRANSICIONES = {
-  Recibido: ['Pendiente', 'Derivado', 'Respondido', 'Finalizado', 'Archivado'],
-  Pendiente: ['Derivado', 'Respondido', 'Finalizado', 'Archivado'],
-  Derivado: ['Pendiente', 'Respondido', 'Finalizado', 'Archivado'],
-  Respondido: ['Finalizado', 'Archivado'],
-  Finalizado: ['Archivado'],
-  Archivado: [],
+  Pendiente: ['Respondido', 'Archivado'],
+  Respondido: ['Archivado', 'Pendiente'],
+  Archivado: ['Pendiente', 'Respondido'],
 };
 
 // Resuelve una ruta guardada en BD y evita que salga de STORAGE_ROOT
@@ -96,9 +93,9 @@ router.post('/', ESCRITURA, upload.single('archivo'), asyncH(async (req, res) =>
     const dir = rutaSegura(cat.rows[0].carpeta);
     await fs.mkdir(dir, { recursive: true });
 
-    const estadoValido = ['Recibido', 'Pendiente', 'Derivado', 'Finalizado', 'Respondido', 'Archivado'].includes(estado)
+    const estadoValido = ['Pendiente', 'Respondido', 'Archivado'].includes(estado)
       ? estado
-      : 'Recibido';
+      : 'Pendiente';
     const medioValido = medio_recepcion || 'Presencial';
     const anexosNum = Math.max(parseInt(cantidad_anexos, 10) || 0, 0);
     const responsableFinal = (responsable_recepcion || req.user.nombre || '').trim();
@@ -171,17 +168,16 @@ router.post('/', ESCRITURA, upload.single('archivo'), asyncH(async (req, res) =>
 router.get('/resumen', asyncH(async (_req, res) => {
   const { rows } = await query(`
     SELECT
-      COUNT(*) FILTER (WHERE clasificacion_flujo = 'Expedido')                AS total_expedidos,
-      COUNT(*) FILTER (WHERE clasificacion_flujo = 'Recibido')                AS total_recibidos,
+      COUNT(*)                                                                AS total_documentos,
       COUNT(*) FILTER (WHERE estado_semaforo = 'Pendiente')                   AS semaforo_rojo,
       COUNT(*) FILTER (WHERE estado_semaforo = 'En curso')                    AS semaforo_amarillo,
       COUNT(*) FILTER (WHERE estado_semaforo = 'Completado')                  AS semaforo_verde,
-      COUNT(*) FILTER (WHERE estado IN ('Pendiente', 'Recibido', 'Derivado')) AS pendientes,
-      COUNT(*) FILTER (WHERE estado IN ('Respondido', 'Finalizado'))          AS respondidos,
+      COUNT(*) FILTER (WHERE estado = 'Pendiente')                            AS pendientes,
+      COUNT(*) FILTER (WHERE estado = 'Respondido')                           AS respondidos,
       COUNT(*) FILTER (WHERE estado = 'Archivado')                            AS archivados,
-      COUNT(*) FILTER (WHERE estado IN ('Pendiente', 'Recibido', 'Derivado')
+      COUNT(*) FILTER (WHERE estado = 'Pendiente'
                          AND fecha_vencimiento < CURRENT_DATE)                AS vencidos,
-      COUNT(*) FILTER (WHERE estado IN ('Pendiente', 'Recibido', 'Derivado')
+      COUNT(*) FILTER (WHERE estado = 'Pendiente'
                          AND fecha_vencimiento BETWEEN CURRENT_DATE AND CURRENT_DATE + 3) AS por_vencer
     FROM documentos`);
   res.json(rows[0]);
