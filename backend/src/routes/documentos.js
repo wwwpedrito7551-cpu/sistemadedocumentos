@@ -388,6 +388,9 @@ router.delete('/:id', ESCRITURA, asyncH(async (req, res) => {
     }
   }
 
+  // Eliminación explícita de registros hijos antes de borrar el documento
+  await query('DELETE FROM notificaciones WHERE id_documento = $1', [req.params.id]);
+  await query('DELETE FROM historial_documentos WHERE id_documento = $1', [req.params.id]);
   await query('DELETE FROM documentos WHERE id_documento = $1', [req.params.id]);
   res.json({ ok: true, mensaje: `Documento ${doc.numero_recepcion || doc.numero_documento} eliminado exitosamente` });
 }));

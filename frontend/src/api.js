@@ -46,7 +46,7 @@ export async function apiFetch(endpoint, options = {}) {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.error || 'Error en la solicitud');
+    throw new Error(data.error || data.mensaje || data.message || `Error en la solicitud (Código ${res.status})`);
   }
   return data;
 }

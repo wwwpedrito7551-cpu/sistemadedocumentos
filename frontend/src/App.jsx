@@ -146,6 +146,10 @@ export default function App() {
     rol: 'Secretaria',
   });
   const [userMsg, setUserMsg] = useState({ tipo: '', texto: '' });
+  // Estados para Modales de Edición (Categorías, Usuarios y Bandeja)
+  const [editandoCategoria, setEditandoCategoria] = useState(null);
+  const [editandoUsuario, setEditandoUsuario] = useState(null);
+  const [editandoDocBandeja, setEditandoDocBandeja] = useState(null);
 
   const puedeEscribir =
     user?.rol === 'Administrador' || user?.rol === 'Secretaria';
@@ -371,6 +375,105 @@ export default function App() {
       setFormMsg({ tipo: 'error', texto: err.message });
     } finally {
       setSubiendoDoc(false);
+    }
+  }
+
+  // Eliminar y Modificar Categorías
+  async function handleEliminarCategoria(id, nombre) {
+    if (!window.confirm(`¿Estás seguro de que deseas ELIMINAR la carpeta/categoría "${nombre}"?`)) {
+      return;
+    }
+    try {
+      await apiFetch(`/categorias/${id}`, { method: 'DELETE' });
+      await cargarTodo();
+    } catch (err) {
+      alert(`No se puede eliminar la categoría: ${err.message}`);
+    }
+  }
+
+  async function handleGuardarEdicionCategoria(e) {
+    e.preventDefault();
+    if (!editandoCategoria) return;
+    try {
+      await apiFetch(`/categorias/${editandoCategoria.id_categoria}`, {
+        method: 'PUT',
+        body: JSON.stringify(editandoCategoria),
+      });
+      setEditandoCategoria(null);
+      await cargarTodo();
+    } catch (err) {
+      alert(`Error al actualizar la categoría: ${err.message}`);
+    }
+  }
+
+  // Eliminar y Modificar Usuarios
+  async function handleEliminarUsuario(id, nombre) {
+    if (id === user.id) {
+      alert('No puedes eliminar tu propia cuenta en uso.');
+      return;
+    }
+    if (!window.confirm(`¿Estás seguro de que deseas ELIMINAR al usuario "${nombre}"?`)) {
+      return;
+    }
+    try {
+      await apiFetch(`/auth/usuarios/${id}`, { method: 'DELETE' });
+      const uList = await apiFetch('/auth/usuarios');
+      setUsuariosList(uList);
+    } catch (err) {
+      alert(`Error al eliminar usuario: ${err.message}`);
+    }
+  }
+
+  async function handleGuardarEdicionUsuario(e) {
+    e.preventDefault();
+    if (!editandoUsuario) return;
+    try {
+      await apiFetch(`/auth/usuarios/${editandoUsuario.id_usuario}`, {
+        method: 'PUT',
+        body: JSON.stringify(editandoUsuario),
+      });
+      setEditandoUsuario(null);
+      const uList = await apiFetch('/auth/usuarios');
+      setUsuariosList(uList);
+    } catch (err) {
+      alert(`Error al actualizar usuario: ${err.message}`);
+    }
+  }
+
+  // Notificaciones
+  async function handleEliminarNotificacion(id) {
+    if (!window.confirm('¿Eliminar esta alerta del historial?')) return;
+    try {
+      await apiFetch(`/notificaciones/${id}`, { method: 'DELETE' });
+      await cargarTodo();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function handleLimpiarNotificaciones() {
+    if (!window.confirm('¿Deseas vaciar TODO el historial de notificaciones y alertas?')) return;
+    try {
+      await apiFetch('/notificaciones', { method: 'DELETE' });
+      await cargarTodo();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  // Guardar edición documento bandeja
+  async function handleGuardarEdicionDocBandeja(e) {
+    e.preventDefault();
+    if (!editandoDocBandeja) return;
+    try {
+      await apiFetch(`/documentos/${editandoDocBandeja.id_documento}`, {
+        method: 'PUT',
+        body: JSON.stringify(editandoDocBandeja),
+      });
+      setEditandoDocBandeja(null);
+      await cargarTodo();
+    } catch (err) {
+      alert(`Error al actualizar documento: ${err.message}`);
     }
   }
 
@@ -1094,17 +1197,30 @@ export default function App() {
                                     <span>›</span>
                                   </button>
                                   {puedeEscribir && (
-                                    <button
-                                      type="button"
-                                      className="btn-table-action btn-delete"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleEliminarDoc(d.id_documento, d.numero_recepcion || d.numero_documento);
-                                      }}
-                                      title="Eliminar este documento"
-                                    >
-                                      🗑️
-                                    </button>
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="btn-table-action btn-edit"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setEditandoDocBandeja({ ...d });
+                                        }}
+                                        title="Editar documento"
+                                      >
+                                        ✏️
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="btn-table-action btn-delete"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleEliminarDoc(d.id_documento, d.numero_recepcion || d.numero_documento);
+                                        }}
+                                        title="Eliminar este documento"
+                                      >
+                                        🗑️
+                                      </button>
+                                    </>
                                   )}
                                 </div>
                               </td>
@@ -1208,6 +1324,7 @@ export default function App() {
                           <th>NOMBRE</th>
                           <th>DESCRIPCIÓN</th>
                           <th>RUTA FÍSICA EN STORAGE</th>
+                          {esAdmin && <th>ACCIONES</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -1219,6 +1336,28 @@ export default function App() {
                             <td>
                               <span className="badge-categoria">{c.carpeta}</span>
                             </td>
+                            {esAdmin && (
+                              <td>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <button
+                                    type="button"
+                                    className="btn-table-action btn-edit"
+                                    onClick={() => setEditandoCategoria({ ...c })}
+                                    title="Editar categoría"
+                                  >
+                                    ✏️ Editar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-table-action btn-delete"
+                                    onClick={() => handleEliminarCategoria(c.id_categoria, c.nombre)}
+                                    title="Eliminar categoría"
+                                  >
+                                    🗑️ Eliminar
+                                  </button>
+                                </div>
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
@@ -1231,10 +1370,20 @@ export default function App() {
             {/* ==================== VISTA 3: NOTIFICACIONES ==================== */}
             {vistaActiva === 'notificaciones' && (
               <section className="main-table-card">
-                <div className="card-section-header">
+                <div className="card-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div className="card-title-group">
                     <span>🔔 Historial de Alertas y Notificaciones Automáticas</span>
                   </div>
+                  {notificaciones.length > 0 && esAdmin && (
+                    <button
+                      type="button"
+                      className="btn-danger"
+                      style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}
+                      onClick={handleLimpiarNotificaciones}
+                    >
+                      🗑️ Limpiar Todo el Historial
+                    </button>
+                  )}
                 </div>
                 <div className="docs-table-wrapper">
                   <table className="docs-table">
@@ -1245,6 +1394,7 @@ export default function App() {
                         <th>MENSAJE GENERADO POR TRIGGER / CRON</th>
                         <th>FECHA</th>
                         <th>DESPACHADA</th>
+                        {esAdmin && <th>ACCIONES</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -1265,6 +1415,18 @@ export default function App() {
                               {n.enviada ? '✓ Procesada' : '⏳ En cola'}
                             </span>
                           </td>
+                          {esAdmin && (
+                            <td>
+                              <button
+                                type="button"
+                                className="btn-table-action btn-delete"
+                                onClick={() => handleEliminarNotificacion(n.id_notificacion)}
+                                title="Eliminar alerta"
+                              >
+                                🗑️
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -1348,6 +1510,7 @@ export default function App() {
                           <th>NOMBRE COMPLETO</th>
                           <th>USUARIO</th>
                           <th>ROL ASIGNADO</th>
+                          <th>ACCIONES</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1358,6 +1521,28 @@ export default function App() {
                             <td>{u.usuario}</td>
                             <td>
                               <span className="badge-categoria">{u.rol}</span>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button
+                                  type="button"
+                                  className="btn-table-action btn-edit"
+                                  onClick={() => setEditandoUsuario({ ...u, contrasena: '' })}
+                                  title="Editar usuario"
+                                >
+                                  ✏️ Editar
+                                </button>
+                                {u.id_usuario !== user.id && (
+                                  <button
+                                    type="button"
+                                    className="btn-table-action btn-delete"
+                                    onClick={() => handleEliminarUsuario(u.id_usuario, u.nombre)}
+                                    title="Eliminar usuario"
+                                  >
+                                    🗑️ Eliminar
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1947,6 +2132,199 @@ export default function App() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL: EDITAR CATEGORÍA ==================== */}
+      {editandoCategoria && (
+        <div className="modal-backdrop" onClick={() => setEditandoCategoria(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 500 }}>
+            <div className="modal-header">
+              <h3>✏️ Editar Carpeta / Categoría #{editandoCategoria.id_categoria}</h3>
+              <button type="button" className="btn-close-modal" onClick={() => setEditandoCategoria(null)}>✕</button>
+            </div>
+            <form className="modal-body" onSubmit={handleGuardarEdicionCategoria}>
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <label>Nombre de la Categoría *</label>
+                <input
+                  className="form-control"
+                  value={editandoCategoria.nombre}
+                  onChange={(e) => setEditandoCategoria({ ...editandoCategoria, nombre: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <label>Descripción</label>
+                <textarea
+                  className="form-control"
+                  rows={3}
+                  value={editandoCategoria.descripcion || ''}
+                  onChange={(e) => setEditandoCategoria({ ...editandoCategoria, descripcion: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
+                <button type="button" className="btn-secondary" onClick={() => setEditandoCategoria(null)}>Cancelar</button>
+                <button type="submit" className="btn-primary">💾 Guardar Cambios</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL: EDITAR USUARIO ==================== */}
+      {editandoUsuario && (
+        <div className="modal-backdrop" onClick={() => setEditandoUsuario(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520 }}>
+            <div className="modal-header">
+              <h3>✏️ Editar Usuario #{editandoUsuario.id_usuario}</h3>
+              <button type="button" className="btn-close-modal" onClick={() => setEditandoUsuario(null)}>✕</button>
+            </div>
+            <form className="modal-body" onSubmit={handleGuardarEdicionUsuario}>
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label>Nombre Completo *</label>
+                <input
+                  className="form-control"
+                  value={editandoUsuario.nombre}
+                  onChange={(e) => setEditandoUsuario({ ...editandoUsuario, nombre: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label>Nombre de Usuario (Login) *</label>
+                <input
+                  className="form-control"
+                  value={editandoUsuario.usuario}
+                  onChange={(e) => setEditandoUsuario({ ...editandoUsuario, usuario: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label>Rol Asignado *</label>
+                <select
+                  className="form-control"
+                  value={editandoUsuario.rol}
+                  onChange={(e) => setEditandoUsuario({ ...editandoUsuario, rol: e.target.value })}
+                  required
+                >
+                  <option value="Administrador">Administrador</option>
+                  <option value="Secretaria">Secretaria</option>
+                  <option value="Consulta">Consulta</option>
+                </select>
+              </div>
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <label>Nueva Contraseña (dejar en blanco para mantener la actual)</label>
+                <input
+                  type="password"
+                  className="form-control"
+                  placeholder="Nueva contraseña (opcional)"
+                  value={editandoUsuario.contrasena || ''}
+                  onChange={(e) => setEditandoUsuario({ ...editandoUsuario, contrasena: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
+                <button type="button" className="btn-secondary" onClick={() => setEditandoUsuario(null)}>Cancelar</button>
+                <button type="submit" className="btn-primary">💾 Guardar Cambios</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL: EDITAR DOCUMENTO EN BANDEJA ==================== */}
+      {editandoDocBandeja && (
+        <div className="modal-backdrop" onClick={() => setEditandoDocBandeja(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 650 }}>
+            <div className="modal-header">
+              <h3>✏️ Editar Documento {editandoDocBandeja.numero_recepcion || editandoDocBandeja.numero_documento}</h3>
+              <button type="button" className="btn-close-modal" onClick={() => setEditandoDocBandeja(null)}>✕</button>
+            </div>
+            <form className="modal-body" onSubmit={handleGuardarEdicionDocBandeja}>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label>Tipo de Documento *</label>
+                  <input
+                    className="form-control"
+                    value={editandoDocBandeja.tipo_documento}
+                    onChange={(e) => setEditandoDocBandeja({ ...editandoDocBandeja, tipo_documento: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Categoría / Carpeta</label>
+                  <select
+                    className="form-control"
+                    value={editandoDocBandeja.id_categoria || ''}
+                    onChange={(e) => setEditandoDocBandeja({ ...editandoDocBandeja, id_categoria: e.target.value })}
+                  >
+                    <option value="">-- Sin categoría --</option>
+                    {categorias.map((c) => (
+                      <option key={c.id_categoria} value={c.id_categoria}>{c.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Remitente *</label>
+                  <input
+                    className="form-control"
+                    value={editandoDocBandeja.remitente}
+                    onChange={(e) => setEditandoDocBandeja({ ...editandoDocBandeja, remitente: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Destinatario *</label>
+                  <input
+                    className="form-control"
+                    value={editandoDocBandeja.destinatario}
+                    onChange={(e) => setEditandoDocBandeja({ ...editandoDocBandeja, destinatario: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                  <label>Asunto *</label>
+                  <input
+                    className="form-control"
+                    value={editandoDocBandeja.asunto}
+                    onChange={(e) => setEditandoDocBandeja({ ...editandoDocBandeja, asunto: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Fecha Límite / Vencimiento</label>
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={editandoDocBandeja.fecha_vencimiento ? editandoDocBandeja.fecha_vencimiento.slice(0, 10) : ''}
+                    onChange={(e) => setEditandoDocBandeja({ ...editandoDocBandeja, fecha_vencimiento: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Requiere Respuesta</label>
+                  <select
+                    className="form-control"
+                    value={editandoDocBandeja.requiere_respuesta ? 'true' : 'false'}
+                    onChange={(e) => setEditandoDocBandeja({ ...editandoDocBandeja, requiere_respuesta: e.target.value === 'true' })}
+                  >
+                    <option value="false">No (Informativo)</option>
+                    <option value="true">Sí (Requiere Respuesta)</option>
+                  </select>
+                </div>
+                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                  <label>Observaciones</label>
+                  <textarea
+                    className="form-control"
+                    rows={2}
+                    value={editandoDocBandeja.observaciones || ''}
+                    onChange={(e) => setEditandoDocBandeja({ ...editandoDocBandeja, observaciones: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+                <button type="button" className="btn-secondary" onClick={() => setEditandoDocBandeja(null)}>Cancelar</button>
+                <button type="submit" className="btn-primary">💾 Guardar Cambios</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

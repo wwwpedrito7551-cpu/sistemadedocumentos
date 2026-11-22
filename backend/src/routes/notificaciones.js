@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { query } from '../db.js';
-import { asyncH } from '../utils.js';
+import { asyncH, HttpError } from '../utils.js';
 
 const router = Router();
 
@@ -15,6 +15,29 @@ router.get('/', asyncH(async (req, res) => {
     [limit],
   );
   res.json(rows);
+}));
+
+// Marcar notificación como leída
+router.patch('/:id/leida', asyncH(async (req, res) => {
+  const { rows } = await query(
+    'UPDATE notificaciones SET leida = true WHERE id_notificacion = $1 RETURNING *',
+    [req.params.id],
+  );
+  if (!rows.length) throw new HttpError(404, 'Notificación no encontrada');
+  res.json(rows[0]);
+}));
+
+// Eliminar una notificación
+router.delete('/:id', asyncH(async (req, res) => {
+  const { rowCount } = await query('DELETE FROM notificaciones WHERE id_notificacion = $1', [req.params.id]);
+  if (!rowCount) throw new HttpError(404, 'Notificación no encontrada');
+  res.json({ ok: true });
+}));
+
+// Limpiar todas las notificaciones
+router.delete('/', asyncH(async (_req, res) => {
+  await query('DELETE FROM notificaciones');
+  res.json({ ok: true, mensaje: 'Todas las notificaciones fueron eliminadas' });
 }));
 
 export default router;

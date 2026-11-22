@@ -39,7 +39,7 @@ app.use((err, _req, res, _next) => {
   if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'El archivo es demasiado grande' });
   const status = err.status || 500;
   if (status === 500) console.error(err);
-  res.status(status).json({ error: status === 500 ? 'Error interno del servidor' : err.message });
+  res.status(status).json({ error: err.message || 'Error en el servidor' });
 });
 
 // Servidor API Sistema Automatizado de Archivos - v1.1 Recepcion
